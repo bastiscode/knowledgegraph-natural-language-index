@@ -12,7 +12,7 @@ compute_properties:
 		--file $(OUT_DIR)/wikidata-properties.tsv \
 		--output $(OUT_DIR)/wikidata-properties-index.tsv \
 		--inverse-output $(OUT_DIR)/wikidata-properties-inverse-index.tsv \
-		--keep-most-common-non-unique
+		--keep-most-common-non-unique > $(OUT_DIR)/wikidata-properties-output.txt
 
 .PHONY: download_entities
 download_entities:
@@ -25,7 +25,7 @@ compute_entities:
 	@cargo run --bin wikidata-entities --release -- \
 		--file $(OUT_DIR)/wikidata-entities.tsv \
 		--output $(OUT_DIR)/wikidata-entities-index.tsv \
-		--keep-most-common-non-unique
+		--keep-most-common-non-unique > $(OUT_DIR)/wikidata-entities-output.txt
 
 .PHONY: download
 download: download_properties download_entities
