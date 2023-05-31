@@ -17,6 +17,9 @@ struct Args {
 
     #[clap(short, long)]
     output: PathBuf,
+
+    #[clap(short, long)]
+    inverse_output: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -30,9 +33,12 @@ fn main() -> anyhow::Result<()> {
     assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 4);
 
     let prop_pattern = Regex::new(r"http://www.wikidata.org/prop/direct(-normalized)?/(P\d+)")?;
+    let inv_prop_pattern = Regex::new(r"http://www.wikidata.org/entity/(P\d+)")?;
     let label_pattern = Regex::new("^\"(.*)\"@en$")?;
 
     let mut props = HashMap::new();
+
+    let mut inverse_props = HashMap::new();
 
     let pbar = progress_bar("processing wikidata properties", num_lines as u64, false);
     for line in lines {
@@ -56,9 +62,24 @@ fn main() -> anyhow::Result<()> {
             .split_terminator(";")
             .map(|s| s.trim().to_string())
             .collect::<Vec<_>>();
+        if args.inverse_output.is_some() && splits.len() == 4 {
+            splits[3]
+                .split_terminator(";")
+                .map(|s| {
+                    inv_prop_pattern
+                        .captures(s.trim())
+                        .unwrap()
+                        .get(1)
+                        .unwrap()
+                        .as_str()
+                        .to_string()
+                })
+                .for_each(|inv| {
+                    let _ = inverse_props.insert(prop.clone(), (prop_num, inv));
+                });
+        }
         let val = props.insert(label, (prop_num, prop, aliases));
         assert!(val.is_none(), "labels must be unique");
-        // let inverse_props = splits[2].parse::<usize>()?;
     }
     pbar.finish_and_clear();
     log::info!("found {} properties", props.len());
@@ -99,6 +120,17 @@ fn main() -> anyhow::Result<()> {
     let mut output = BufWriter::new(fs::File::create(args.output)?);
     for (label, prop) in props.into_iter() {
         writeln!(output, "{}\t{}", label, prop)?;
+    }
+
+    if args.inverse_output.is_some() {
+        let inverse_props: Vec<_> = inverse_props
+            .into_iter()
+            .sorted_by(|(_, a), (_, b)| a.0.cmp(&b.0))
+            .collect();
+        let mut inverse_output = BufWriter::new(fs::File::create(args.inverse_output.unwrap())?);
+        for (prop, (_, inv)) in inverse_props.into_iter() {
+            writeln!(inverse_output, "{}\t{}", prop, inv)?;
+        }
     }
 
     Ok(())
