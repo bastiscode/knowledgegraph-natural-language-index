@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
         props.push((ent, ent_label, inst, inst_label, count));
     }
     pbar.finish_and_clear();
-    log::info!("found {:,} entities", props.len());
+    // log::info!("found {:,} entities", props.len());
 
     props.sort_by(|(_, _, _, _, a), (_, _, _, _, b)| a.cmp(b).reverse());
 
