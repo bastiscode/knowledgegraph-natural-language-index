@@ -1,5 +1,4 @@
-# All entities in Wikidata with name, number of sitelinks,
-# instance_of relations, name, and aliases
+# All entities in Wikidata with name, description, number of links, and aliases
 
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX wikibase: <http://wikiba.se/ontology#>
@@ -9,26 +8,26 @@ PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 SELECT 
   ?entity 
   ?entity_name 
-  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases) 
-  (GROUP_CONCAT(DISTINCT ?instance_of; SEPARATOR = "; ") AS ?instances) 
-  (GROUP_CONCAT(DISTINCT ?instance_name; SEPARATOR = "; ") AS ?instance_names) 
-  ?sitelinks 
+  ?entity_description
+  (MAX(?sitelinks) AS ?links) 
+  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
   WHERE 
 {
   ?entity ^schema:about/wikibase:sitelinks ?sitelinks . 
   ?entity wdt:P18 ?pic .
   ?entity rdfs:label ?entity_name .
   FILTER (LANG(?entity_name) = "en") .
-  ?entity wdt:P31 ?instance_of .
-  ?instance_of rdfs:label ?instance_name .
-  FILTER (LANG(?instance_name) = "en") .
+  OPTIONAL {
+    ?entity schema:description ?entity_description .
+    FILTER (LANG(?entity_description) = "en") .
+  }
   OPTIONAL {
     ?entity skos:altLabel ?alias .
     FILTER (LANG(?alias) = "en") .
   }
 }
-GROUP BY ?entity ?entity_name ?sitelinks
-ORDER BY DESC(?sitelinks)
+GROUP BY ?entity ?entity_name ?entity_description
+ORDER BY DESC(?links)
 
 # All direct properties in Wikidata with name, aliases, and inverse properties
 
@@ -39,20 +38,20 @@ PREFIX wd: <http://www.wikidata.org/entity/>
 PREFIX wikibase: <http://wikiba.se/ontology#>
 SELECT 
   ?p 
-  ?propLabel 
-  (GROUP_CONCAT(DISTINCT ?propAlias; SEPARATOR = "; ") AS ?propAliases) 
-  (GROUP_CONCAT(DISTINCT ?invProp; SEPARATOR = "; ") AS ?invProps)
+  ?prop_label 
+  (GROUP_CONCAT(DISTINCT ?prop_alias; SEPARATOR = "; ") AS ?prop_aliases) 
+  (GROUP_CONCAT(DISTINCT ?inv_prop; SEPARATOR = "; ") AS ?inv_props)
   WHERE
 {
   ?prop wikibase:directClaim ?p .
-  ?prop rdfs:label ?propLabel . 
-  FILTER(LANG(?propLabel) = "en") .
+  ?prop rdfs:label ?prop_label . 
+  FILTER(LANG(?prop_label) = "en") .
   OPTIONAL {
-    ?prop skos:altLabel ?propAlias .
-    FILTER(LANG(?propAlias) = "en") .
+    ?prop skos:altLabel ?prop_alias .
+    FILTER(LANG(?prop_alias) = "en") .
   }
   OPTIONAL {
-    ?prop wdt:P1696 ?invProp .
+    ?prop wdt:P1696 ?inv_prop .
   }
 }
-GROUP BY ?p ?propLabel
+GROUP BY ?p ?prop_label

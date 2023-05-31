@@ -20,6 +20,15 @@ struct Args {
 
     #[clap(short, long)]
     inverse_output: Option<PathBuf>,
+
+    #[clap(short, long)]
+    no_aliases: bool,
+
+    #[clap(short, long)]
+    progress: bool,
+
+    #[clap(short, long)]
+    keep_most_common_non_unique: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -40,7 +49,11 @@ fn main() -> anyhow::Result<()> {
 
     let mut inverse_props = HashMap::new();
 
-    let pbar = progress_bar("processing wikidata properties", num_lines as u64, false);
+    let pbar = progress_bar(
+        "processing wikidata properties",
+        num_lines as u64,
+        !args.progress,
+    );
     for line in lines {
         pbar.inc(1);
         let line = line?;
@@ -78,47 +91,64 @@ fn main() -> anyhow::Result<()> {
                     let _ = inverse_props.insert(prop.clone(), (prop_num, inv));
                 });
         }
-        let val = props.insert(label, (prop_num, prop, aliases));
-        assert!(val.is_none(), "labels must be unique");
+        props
+            .entry(label.clone())
+            .or_insert_with(HashSet::new)
+            .insert((prop.clone(), prop_num));
+        if !args.no_aliases {
+            for alias in aliases {
+                props
+                    .entry(alias.clone())
+                    .or_insert_with(HashSet::new)
+                    .insert((prop.clone(), prop_num));
+            }
+        }
     }
     pbar.finish_and_clear();
-    log::info!("found {} properties", props.len());
+    let total_props = props.iter().map(|(_, ents)| ents.len()).sum::<usize>();
+    let unique_props = props.len();
 
-    // get also labels as set
-    let labels: HashSet<_> = props.iter().map(|(label, _)| label.clone()).collect();
-    // get for each alias how often it occurs
-    let alias_counts: HashMap<_, _> = props
-        .iter()
-        .flat_map(|(_, (_, _, aliases))| aliases.clone())
-        .fold(HashMap::new(), |mut map, alias| {
-            *map.entry(alias).or_insert(0) += 1;
-            map
-        });
-    // filter out aliases that are also labels and aliases that occurr more than once
-    props.iter_mut().for_each(|(_, (_, _, aliases))| {
-        aliases.retain(|alias| {
-            !labels.contains(alias) && alias_counts.get(alias).copied().unwrap_or(0) == 1
-        });
-    });
+    println!("Wikidata properties");
+    println!("###################");
+    println!("lines:     {}", num_lines.saturating_sub(1));
+    println!("total:     {total_props}");
+    println!("unique:    {unique_props}");
+    println!(
+        "duplicate: {} ({:.2}%)",
+        total_props.saturating_sub(unique_props),
+        (total_props.saturating_sub(unique_props) as f64 / total_props as f64) * 100.0
+    );
 
-    // sort and flatten
-    let props: Vec<_> = props
-        .into_iter()
-        .sorted_by(|(_, a), (_, b)| a.0.cmp(&b.0))
-        .flat_map(|(label, (_, prop, aliases))| {
-            let mut props = vec![(label, prop.clone())];
-            for alias in aliases {
-                props.push((alias, prop.clone()));
-            }
-            props.into_iter().sorted_by(|(a, _), (b, _)| a.cmp(&b))
-        })
-        .collect();
-
-    // assert uniqueness of labels
-    assert!(props.iter().map(|(label, _)| label).unique().count() == props.len());
+    let props: HashMap<_, _> = if args.keep_most_common_non_unique {
+        props
+            .into_iter()
+            .map(|(label, props)| {
+                if props.len() > 1 {
+                    let top = props.into_iter().min_by_key(|(_, count)| *count).unwrap();
+                    (label, top.0)
+                } else {
+                    (label, props.into_iter().next().unwrap().0)
+                }
+            })
+            .collect()
+    } else {
+        props
+            .into_iter()
+            .filter_map(|(label, props)| {
+                if props.len() == 1 {
+                    Some((label, props.into_iter().next().unwrap().0))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, prop) in props.into_iter() {
+    for (label, prop) in props {
+        if label.is_empty() || prop.is_empty() {
+            continue;
+        }
         writeln!(output, "{}\t{}", label, prop)?;
     }
 
@@ -127,10 +157,15 @@ fn main() -> anyhow::Result<()> {
             .into_iter()
             .sorted_by(|(_, a), (_, b)| a.0.cmp(&b.0))
             .collect();
+        let num_inverse = inverse_props.len();
         let mut inverse_output = BufWriter::new(fs::File::create(args.inverse_output.unwrap())?);
         for (prop, (_, inv)) in inverse_props.into_iter() {
+            if prop.is_empty() || inv.is_empty() {
+                continue;
+            }
             writeln!(inverse_output, "{}\t{}", prop, inv)?;
         }
+        println!("inverse:   {num_inverse}");
     }
 
     Ok(())
