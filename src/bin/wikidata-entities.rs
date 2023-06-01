@@ -1,11 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
 };
 
 use clap::Parser;
+use itertools::Itertools;
 use regex::Regex;
 use sparql_data_preparation::{lines, progress_bar};
 
@@ -18,20 +19,19 @@ struct Args {
     output: PathBuf,
 
     #[clap(short, long)]
-    no_desc: bool,
-
-    #[clap(short, long)]
-    no_aliases: bool,
-
-    #[clap(short, long)]
     progress: bool,
 
     #[clap(short, long)]
     keep_most_common_non_unique: bool,
 }
 
+struct EntityInfo {
+    desc: String,
+    aliases: Vec<String>,
+    count: usize,
+}
+
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
     let args = Args::parse();
 
     let num_lines = lines(&args.file)?.count();
@@ -43,7 +43,8 @@ fn main() -> anyhow::Result<()> {
     let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
     let text_pattern = Regex::new("^\"(.*)\"@en$")?;
 
-    let mut ents = HashMap::with_capacity(8 * num_lines);
+    let mut ents = HashMap::new();
+    let mut label_to_ents = HashMap::new();
 
     let pbar = progress_bar(
         "processing wikidata entities",
@@ -62,14 +63,17 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let ent_label = if let Some(ent_label) = text_pattern.captures(splits[1].trim()) {
-            ent_label.get(1).unwrap().as_str().to_string()
+        let label = if let Some(ent_label) = text_pattern.captures(splits[1]) {
+            ent_label.get(1).unwrap().as_str().trim().to_string()
         } else {
             continue;
         };
+        if label.is_empty() {
+            continue;
+        }
 
-        let ent_desc = if let Some(ent_desc) = text_pattern.captures(splits[2].trim()) {
-            ent_desc.get(1).unwrap().as_str().to_string()
+        let desc = if let Some(ent_desc) = text_pattern.captures(splits[2]) {
+            ent_desc.get(1).unwrap().as_str().trim().to_string()
         } else {
             "".to_string()
         };
@@ -77,100 +81,134 @@ fn main() -> anyhow::Result<()> {
 
         let aliases: Vec<_> = if splits.len() > 4 {
             splits[4]
-                .split_terminator(";")
+                .split_terminator(';')
                 .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .sorted()
                 .collect()
         } else {
             vec![]
         };
 
-        log::info!(
-            "entity: {}, label: {}, desc: {}, count: {}, aliases: {:?}",
-            ent,
-            ent_label,
-            ent_desc,
-            count,
+        label_to_ents
+            .entry(label.clone())
+            .or_insert_with(Vec::new)
+            .push(ent.clone());
+
+        let info = EntityInfo {
+            desc,
             aliases,
-        );
-        ents.entry((ent_label.clone(), String::new()))
-            .or_insert_with(HashSet::new)
-            .insert((ent.clone(), count));
-        if !args.no_desc {
-            ents.entry((ent_label.clone(), ent_desc.clone()))
-                .or_insert_with(HashSet::new)
-                .insert((ent.clone(), count));
-        }
-        if !args.no_aliases {
-            for alias in aliases {
-                ents.entry((alias.clone(), String::new()))
-                    .or_insert_with(HashSet::new)
-                    .insert((ent.clone(), count));
-                if !args.no_desc {
-                    ents.entry((alias.clone(), ent_desc.clone()))
-                        .or_insert_with(HashSet::new)
-                        .insert((ent.clone(), count));
-                }
-            }
-        }
+            count,
+        };
+        let existing = ents.insert(ent, info);
+        assert!(existing.is_none(), "entities should be unique");
     }
     pbar.finish_and_clear();
-    let total_ents = ents.iter().map(|(_, ents)| ents.len()).sum::<usize>();
-    let unique_ents = ents.len();
+
+    let num_ents = ents.len();
+
+    let mut label_to_ent = HashMap::new();
+    assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
+    let mut label_desc_to_ents = HashMap::new();
+    for (label, mut entities) in label_to_ents {
+        if entities.len() <= 1 {
+            label_to_ent.insert(label, entities.into_iter().next().unwrap());
+            continue;
+        } else if args.keep_most_common_non_unique {
+            // if we have multiple entities with the same label, we keep the most common one
+            // as the one being identified by just the label
+            entities.sort_by_key(|ent| ents.get(ent).unwrap().count);
+            label_to_ent.insert(label.clone(), entities.pop().unwrap());
+        }
+        // if the label alone is not unique, we add the description to it and try again
+        for ent in entities {
+            let desc = &ents.get(&ent).unwrap().desc;
+            if desc.is_empty() {
+                continue;
+            }
+            let label_desc = format!("{label} ({desc})");
+            if label_to_ent.contains_key(&label_desc) {
+                continue;
+            }
+            label_desc_to_ents
+                .entry(label_desc)
+                .or_insert_with(Vec::new)
+                .push(ent);
+        }
+    }
+    let num_label_unique = label_to_ent.len();
+    assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
+
+    let mut ents_left = HashSet::new();
+    for (label, mut entities) in label_desc_to_ents {
+        if entities.len() <= 1 {
+            label_to_ent.insert(label, entities.into_iter().next().unwrap());
+            continue;
+        } else if args.keep_most_common_non_unique {
+            // same as above
+            entities.sort_by_key(|ent| ents.get(ent).unwrap().count);
+            label_to_ent.insert(label, entities.pop().unwrap());
+        }
+        // if the label and description are not unique
+        // record the entities with entry yet to be preferred when adding aliases
+        ents_left.extend(entities);
+    }
+    let num_label_desc_unique = label_to_ent.len();
+    assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
     println!("Wikidata entities");
     println!("#################");
-    println!("lines:     {}", num_lines.saturating_sub(1));
-    println!("total:     {total_ents}");
-    println!("unique:    {unique_ents}");
+    println!("entities:                 {}", num_ents);
+    println!("unique by label:          {}", num_label_unique);
     println!(
-        "duplicate: {} ({:.2}%)",
-        total_ents.saturating_sub(unique_ents),
-        (total_ents.saturating_sub(unique_ents) as f64 / total_ents as f64) * 100.0
+        "label coverage:           {:.2}%",
+        100.0 * num_label_unique as f32 / num_ents as f32
+    );
+    println!("unique by label and desc: {}", num_label_desc_unique);
+    println!(
+        "label and desc coverage:  {:.2}%",
+        100.0 * num_label_desc_unique as f32 / num_ents as f32
+    );
+    println!("entities left before:     {}", ents_left.len(),);
+
+    // now we have all unique entities
+    // go over aliases to make sure one entitiy can be found by multiple names
+    let mut total_aliases = 0;
+    ents.into_iter()
+        .sorted_by_key(|(ent, info)| (ents_left.contains(ent), info.count))
+        .rev()
+        .for_each(|(ent, info)| {
+            total_aliases += info.aliases.len();
+            for alias in info.aliases {
+                if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
+                    entry.insert(ent.clone());
+                    ents_left.remove(&ent);
+                    continue;
+                } else if info.desc.is_empty() {
+                    continue;
+                }
+                let alias_desc = format!("{} ({})", alias, info.desc);
+                if let Entry::Vacant(entry) = label_to_ent.entry(alias_desc) {
+                    entry.insert(ent.clone());
+                    ents_left.remove(&ent);
+                }
+            }
+        });
+
+    println!(
+        "added unique aliases:     {} ({:.2}% of all aliases)",
+        label_to_ent.len() - num_label_desc_unique,
+        100.0 * (label_to_ent.len() - num_label_desc_unique) as f32 / total_aliases as f32
+    );
+    println!("entities left after:      {}", ents_left.len(),);
+    println!("final index size:         {}", label_to_ent.len());
+    println!(
+        "final index coverage:     {:.2}%",
+        100.0 * label_to_ent.iter().unique_by(|&(_, ent)| ent).count() as f32 / num_ents as f32
     );
 
-    let ents: HashMap<_, _> = if args.keep_most_common_non_unique {
-        ents.into_iter()
-            .map(|(label, ents)| {
-                if ents.len() > 1 {
-                    let top = ents.into_iter().max_by_key(|(_, count)| *count).unwrap();
-                    (label, top.0)
-                } else {
-                    (label, ents.into_iter().next().unwrap().0)
-                }
-            })
-            .collect()
-    } else {
-        ents.into_iter()
-            .filter_map(|(label, ents)| {
-                if ents.len() == 1 {
-                    Some((label, ents.into_iter().next().unwrap().0))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
-
-    // now we have unique entities
-    // filter out all description based entities if they
-    // are already unique without description
-    let unique_labels: HashSet<_> = ents.iter().map(|((label, _), _)| label).cloned().collect();
-    let ents: HashMap<_, _> = ents
-        .into_iter()
-        .filter_map(|((label, desc), ent)| {
-            if desc.is_empty() || unique_labels.contains(&label) {
-                Some((label, ent))
-            } else {
-                Some((format!("{label} ({desc})"), ent))
-            }
-        })
-        .collect();
-
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, ent) in ents {
-        if label.is_empty() || ent.is_empty() {
-            continue;
-        }
+    for (label, ent) in label_to_ent {
         writeln!(output, "{}\t{}", label, ent)?;
     }
 

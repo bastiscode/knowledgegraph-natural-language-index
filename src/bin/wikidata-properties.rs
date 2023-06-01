@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
@@ -32,7 +32,6 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
     let args = Args::parse();
 
     let num_lines = lines(&args.file)?.count();
@@ -45,8 +44,8 @@ fn main() -> anyhow::Result<()> {
     let inv_prop_pattern = Regex::new(r"http://www.wikidata.org/entity/(P\d+)")?;
     let label_pattern = Regex::new("^\"(.*)\"@en$")?;
 
-    let mut props = HashMap::new();
-
+    let mut label_to_prop = HashMap::new();
+    let mut alias_to_prop = HashMap::new();
     let mut inverse_props = HashMap::new();
 
     let pbar = progress_bar(
@@ -72,12 +71,12 @@ fn main() -> anyhow::Result<()> {
         let prop_num = prop.chars().skip(1).collect::<String>().parse::<usize>()?;
         let label = label.get(1).unwrap().as_str().to_string();
         let aliases = splits[2]
-            .split_terminator(";")
+            .split_terminator(';')
             .map(|s| s.trim().to_string())
             .collect::<Vec<_>>();
         if args.inverse_output.is_some() && splits.len() == 4 {
             splits[3]
-                .split_terminator(";")
+                .split_terminator(';')
                 .map(|s| {
                     inv_prop_pattern
                         .captures(s.trim())
@@ -91,13 +90,11 @@ fn main() -> anyhow::Result<()> {
                     let _ = inverse_props.insert(prop.clone(), (prop_num, inv));
                 });
         }
-        props
-            .entry(label.clone())
-            .or_insert_with(HashSet::new)
-            .insert((prop.clone(), prop_num));
+        let existing = label_to_prop.insert(label.clone(), prop.clone());
+        assert!(existing.is_none(), "labels for properties should be unique");
         if !args.no_aliases {
             for alias in aliases {
-                props
+                alias_to_prop
                     .entry(alias.clone())
                     .or_insert_with(HashSet::new)
                     .insert((prop.clone(), prop_num));
@@ -105,47 +102,38 @@ fn main() -> anyhow::Result<()> {
         }
     }
     pbar.finish_and_clear();
-    let total_props = props.iter().map(|(_, ents)| ents.len()).sum::<usize>();
-    let unique_props = props.len();
+
+    let num_label_unique = label_to_prop.len();
+
+    for (alias, props) in alias_to_prop {
+        if let Entry::Vacant(entry) = label_to_prop.entry(alias) {
+            if props.len() <= 1 {
+                entry.insert(props.into_iter().next().unwrap().0);
+            } else {
+                entry.insert(
+                    props
+                        .into_iter()
+                        .sorted_by_key(|(_, prop_num)| *prop_num)
+                        .next()
+                        .unwrap()
+                        .0,
+                );
+            }
+        }
+    }
 
     println!("Wikidata properties");
     println!("###################");
-    println!("lines:     {}", num_lines.saturating_sub(1));
-    println!("total:     {total_props}");
-    println!("unique:    {unique_props}");
+    println!("lines:           {}", num_lines.saturating_sub(1));
+    println!("unique by label: {num_label_unique}");
     println!(
-        "duplicate: {} ({:.2}%)",
-        total_props.saturating_sub(unique_props),
-        (total_props.saturating_sub(unique_props) as f64 / total_props as f64) * 100.0
+        "unique aliases:  {}",
+        label_to_prop.len().saturating_sub(num_label_unique)
     );
-
-    let props: HashMap<_, _> = if args.keep_most_common_non_unique {
-        props
-            .into_iter()
-            .map(|(label, props)| {
-                if props.len() > 1 {
-                    let top = props.into_iter().min_by_key(|(_, count)| *count).unwrap();
-                    (label, top.0)
-                } else {
-                    (label, props.into_iter().next().unwrap().0)
-                }
-            })
-            .collect()
-    } else {
-        props
-            .into_iter()
-            .filter_map(|(label, props)| {
-                if props.len() == 1 {
-                    Some((label, props.into_iter().next().unwrap().0))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
+    println!("total unique:    {}", label_to_prop.len());
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, prop) in props {
+    for (label, prop) in label_to_prop {
         if label.is_empty() || prop.is_empty() {
             continue;
         }
@@ -165,7 +153,10 @@ fn main() -> anyhow::Result<()> {
             }
             writeln!(inverse_output, "{}\t{}", prop, inv)?;
         }
-        println!("inverse:   {num_inverse}");
+        println!();
+        println!("Wikidata inverse properties");
+        println!("###########################");
+        println!("inverse: {num_inverse}");
     }
 
     Ok(())

@@ -2,7 +2,6 @@ use std::io::BufRead;
 use std::path::Path;
 use std::{fs, io::BufReader};
 
-use anyhow;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 pub fn lines(
