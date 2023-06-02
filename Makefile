@@ -1,4 +1,5 @@
 OUT_DIR=.
+CARGO=cargo
 
 .PHONY: download_properties
 download_properties:
@@ -8,7 +9,7 @@ download_properties:
 
 .PHONY: compute_properties
 compute_properties:
-	@cargo run --bin wikidata-properties --release -- \
+	@$(CARGO) run --bin wikidata-properties --release -- \
 		--file $(OUT_DIR)/wikidata-properties.tsv \
 		--output $(OUT_DIR)/wikidata-properties-index.tsv \
 		--inverse-output $(OUT_DIR)/wikidata-properties-inverse-index.tsv \
@@ -22,7 +23,7 @@ download_entities:
 
 .PHONY: compute_entities
 compute_entities:
-	@cargo run --bin wikidata-entities --release -- \
+	@$(CARGO) run --bin wikidata-entities --release -- \
 		--file $(OUT_DIR)/wikidata-entities.tsv \
 		--output $(OUT_DIR)/wikidata-entities-index.tsv \
 		--keep-most-common-non-unique > $(OUT_DIR)/wikidata-entities-output.txt
