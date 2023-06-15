@@ -9,12 +9,20 @@ SELECT
   ?entity 
   ?entity_name 
   ?entity_description
-  (MAX(?sitelinks) AS ?links) 
+  (MAX(?sitelinks) AS ?links)
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
   WHERE 
 {
+  { 
+    ?entity wdt:P18 ?pic . 
+  }
+  UNION
+  { 
+    ?article schema:about ?entity .
+    ?article schema:isPartOf ?wiki .
+    FILTER(REGEX(STR(?wiki), "^https?://.*.wikipedia.org")) .
+  }
   ?entity ^schema:about/wikibase:sitelinks ?sitelinks . 
-  ?entity wdt:P18 ?pic .
   ?entity rdfs:label ?entity_name .
   FILTER (LANG(?entity_name) = "en") .
   OPTIONAL {
