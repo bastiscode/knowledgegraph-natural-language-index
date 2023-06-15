@@ -19,5 +19,10 @@ make index
 make index OUT_DIR=path/to/dir
 ```
 
-We host weekly updated data and indices to download here:
-TODO: add URL
+We host weekly updated data and indices to download [here](https://ad-wikidata-index.cs.uni-freiburg.de/):
+- `wikidata-entities.tsv`: raw Wikidata entities dump
+- `wikidata-entities-index.tsv`: label --> entity index (with aliases/descriptions)
+- `wikidata-entities-popular-index.tsv` label --> entity index (with aliases/descriptions, aliases of popular entities trump labels of unpopular entities)
+- `wikidata-properties.tsv`: raw Wikidata properties dump
+- `wikidata-properties-index.tsv`: label --> property index (with aliases)
+- `wikidata-properties-inverse-index.tsv`: property --> inverse property index
