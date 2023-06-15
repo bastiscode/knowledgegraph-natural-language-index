@@ -27,6 +27,11 @@ compute_entities:
 		--file $(OUT_DIR)/wikidata-entities.tsv \
 		--output $(OUT_DIR)/wikidata-entities-index.tsv \
 		--keep-most-common-non-unique > $(OUT_DIR)/wikidata-entities-output.txt
+	@$(CARGO) run --bin wikidata-entities --release -- \
+		--file $(OUT_DIR)/wikidata-entities.tsv \
+		--output $(OUT_DIR)/wikidata-entities-popular-index.tsv \
+		--keep-most-common-non-unique \
+		--check-for-popular-aliases > $(OUT_DIR)/wikidata-entities-popular-output.txt
 
 .PHONY: download
 download: download_properties download_entities

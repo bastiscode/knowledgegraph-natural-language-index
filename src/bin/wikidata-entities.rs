@@ -23,6 +23,9 @@ struct Args {
 
     #[clap(short, long)]
     keep_most_common_non_unique: bool,
+
+    #[clap(short, long)]
+    check_for_popular_aliases: bool,
 }
 
 struct EntityInfo {
@@ -43,8 +46,9 @@ fn main() -> anyhow::Result<()> {
     let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
     let text_pattern = Regex::new("^\"(.*)\"@en$")?;
 
-    let mut ents = HashMap::new();
+    let mut ent_infos = HashMap::new();
     let mut label_to_ents = HashMap::new();
+    let mut aliases_to_ents = HashMap::new();
 
     let pbar = progress_bar(
         "processing wikidata entities",
@@ -95,34 +99,76 @@ fn main() -> anyhow::Result<()> {
             .or_insert_with(Vec::new)
             .push(ent.clone());
 
+        if args.check_for_popular_aliases {
+            for alias in &aliases {
+                aliases_to_ents
+                    .entry(alias.clone())
+                    .or_insert_with(Vec::new)
+                    .push(ent.clone());
+            }
+        }
+
         let info = EntityInfo {
             desc,
             aliases,
             count,
         };
-        let existing = ents.insert(ent, info);
+        let existing = ent_infos.insert(ent, info);
         assert!(existing.is_none(), "entities should be unique");
     }
     pbar.finish_and_clear();
 
-    let num_ents = ents.len();
+    let num_ents = ent_infos.len();
 
+    let check_for_more_popular_alias = |label: &str, ent: &str| {
+        let Some(alias_ents) = aliases_to_ents.get(label) else {
+            return None;
+        };
+        let info = ent_infos.get(ent).unwrap();
+        let Some((alias_ent, alias_count)) = alias_ents
+            .iter()
+            .filter_map(|alias_ent| {
+                if alias_ent == ent {
+                    return None;
+                }
+                Some((alias_ent, ent_infos.get(alias_ent).unwrap().count))
+            })
+            .max_by_key(|&(_, count)| count) else {
+            return None;
+        };
+        if alias_count > info.count {
+            Some(alias_ent.to_string())
+        } else {
+            None
+        }
+    };
+
+    // initialize the final label to entity mapping
     let mut label_to_ent = HashMap::new();
     assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
     let mut label_desc_to_ents = HashMap::new();
     for (label, mut entities) in label_to_ents {
+        assert!(entities.len() > 0);
         if entities.len() <= 1 {
-            label_to_ent.insert(label, entities.into_iter().next().unwrap());
-            continue;
+            let alias_ent = check_for_more_popular_alias(&label, &entities[0]);
+            if !args.check_for_popular_aliases || alias_ent.is_none() {
+                label_to_ent.insert(label, entities.into_iter().next().unwrap());
+                continue;
+            }
         } else if args.keep_most_common_non_unique {
             // if we have multiple entities with the same label, we keep the most common one
             // as the one being identified by just the label
-            entities.sort_by_key(|ent| ents.get(ent).unwrap().count);
-            label_to_ent.insert(label.clone(), entities.pop().unwrap());
+            entities.sort_by_key(|ent| ent_infos.get(ent).unwrap().count);
+            // keep the most popular one only if its label is not an alias
+            // of a more popular entity
+            let alias_ent = check_for_more_popular_alias(&label, entities.last().unwrap());
+            if !args.check_for_popular_aliases || alias_ent.is_none() {
+                label_to_ent.insert(label.clone(), entities.pop().unwrap());
+            }
         }
         // if the label alone is not unique, we add the description to it and try again
         for ent in entities {
-            let desc = &ents.get(&ent).unwrap().desc;
+            let desc = &ent_infos.get(&ent).unwrap().desc;
             if desc.is_empty() {
                 continue;
             }
@@ -146,7 +192,7 @@ fn main() -> anyhow::Result<()> {
             continue;
         } else if args.keep_most_common_non_unique {
             // same as above
-            entities.sort_by_key(|ent| ents.get(ent).unwrap().count);
+            entities.sort_by_key(|ent| ent_infos.get(ent).unwrap().count);
             label_to_ent.insert(label, entities.pop().unwrap());
         }
         // if the label and description are not unique
@@ -174,7 +220,8 @@ fn main() -> anyhow::Result<()> {
     // now we have all unique entities
     // go over aliases to make sure one entitiy can be found by multiple names
     let mut total_aliases = 0;
-    ents.into_iter()
+    ent_infos
+        .into_iter()
         .sorted_by_key(|(ent, info)| (ents_left.contains(ent), info.count))
         .rev()
         .for_each(|(ent, info)| {

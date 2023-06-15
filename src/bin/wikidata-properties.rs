@@ -87,7 +87,17 @@ fn main() -> anyhow::Result<()> {
                         .to_string()
                 })
                 .for_each(|inv| {
-                    let _ = inverse_props.insert(prop.clone(), (prop_num, inv));
+                    let inv_num = inv
+                        .chars()
+                        .skip(1)
+                        .collect::<String>()
+                        .parse::<usize>()
+                        .unwrap();
+                    let _ = inverse_props
+                        .entry(prop.clone())
+                        .or_insert_with(|| (prop_num, vec![]))
+                        .1
+                        .push((inv, inv_num));
                 });
         }
         let existing = label_to_prop.insert(label.clone(), prop.clone());
@@ -143,11 +153,15 @@ fn main() -> anyhow::Result<()> {
     if args.inverse_output.is_some() {
         let inverse_props: Vec<_> = inverse_props
             .into_iter()
-            .sorted_by(|(_, a), (_, b)| a.0.cmp(&b.0))
+            .flat_map(|(prop, (prop_num, invs))| {
+                invs.into_iter()
+                    .map(move |(inv, inv_num)| (prop.clone(), prop_num, inv, inv_num))
+            })
+            .sorted_by_key(|&(_, prop_num, _, inv_num)| (prop_num, inv_num))
             .collect();
         let num_inverse = inverse_props.len();
         let mut inverse_output = BufWriter::new(fs::File::create(args.inverse_output.unwrap())?);
-        for (prop, (_, inv)) in inverse_props.into_iter() {
+        for (prop, _, inv, _) in inverse_props.into_iter() {
             if prop.is_empty() || inv.is_empty() {
                 continue;
             }
