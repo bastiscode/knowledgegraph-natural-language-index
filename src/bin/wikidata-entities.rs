@@ -26,6 +26,9 @@ struct Args {
 
     #[clap(short, long)]
     check_for_popular_aliases: bool,
+
+    #[clap(short, long)]
+    full_ids: bool,
 }
 
 struct EntityInfo {
@@ -255,7 +258,10 @@ fn main() -> anyhow::Result<()> {
     );
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, ent) in label_to_ent {
+    for (label, mut ent) in label_to_ent {
+        if !args.full_ids {
+            ent = ent.chars().skip(1).collect();
+        };
         writeln!(output, "{}\t{}", label, ent)?;
     }
 

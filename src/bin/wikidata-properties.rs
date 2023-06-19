@@ -29,6 +29,9 @@ struct Args {
 
     #[clap(short, long)]
     keep_most_common_non_unique: bool,
+
+    #[clap(short, long)]
+    full_ids: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -143,10 +146,13 @@ fn main() -> anyhow::Result<()> {
     println!("total unique:    {}", label_to_prop.len());
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, prop) in label_to_prop {
+    for (label, mut prop) in label_to_prop {
         if label.is_empty() || prop.is_empty() {
             continue;
         }
+        if !args.full_ids {
+            prop = prop.chars().skip(1).collect();
+        };
         writeln!(output, "{}\t{}", label, prop)?;
     }
 
@@ -161,10 +167,14 @@ fn main() -> anyhow::Result<()> {
             .collect();
         let num_inverse = inverse_props.len();
         let mut inverse_output = BufWriter::new(fs::File::create(args.inverse_output.unwrap())?);
-        for (prop, _, inv, _) in inverse_props.into_iter() {
+        for (mut prop, _, mut inv, _) in inverse_props.into_iter() {
             if prop.is_empty() || inv.is_empty() {
                 continue;
             }
+            if !args.full_ids {
+                prop = prop.chars().skip(1).collect();
+                inv = inv.chars().skip(1).collect();
+            };
             writeln!(inverse_output, "{}\t{}", prop, inv)?;
         }
         println!();
