@@ -9,6 +9,7 @@ use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
 use sparql_data_preparation::{lines, progress_bar};
+use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -158,18 +159,35 @@ fn main() -> anyhow::Result<()> {
     };
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, prop) in label_to_prop.iter().sorted_by_key(|&(_, prop)| {
-        let is_alias = matches!(prop, Prop::Alias(_));
-        (prop_to_id(prop.as_str()), is_alias)
-    }) {
-        if label.is_empty() || prop.as_str().is_empty() {
-            continue;
-        }
-        if !args.full_ids {
-            writeln!(output, "{}\t{}", label, prop_to_id(prop.as_str()))?;
-        } else {
-            writeln!(output, "{}\t{}", label, prop.as_str())?;
+    let mut output_dict = HashMap::new();
+    for (label, prop) in label_to_prop {
+        output_dict
+            .entry(prop.as_str().to_string())
+            .or_insert_with(Vec::new)
+            .push(match prop {
+                Prop::Label(_) => Prop::Label(label),
+                Prop::Alias(_) => Prop::Alias(label),
+            });
+    }
+    for (prop, mut labels) in output_dict
+        .into_iter()
+        .sorted_by_key(|(prop, _)| prop_to_id(prop))
+    {
+        labels.sort_by_key(|label| matches!(label, Prop::Label(_)));
+        let Some(label) = labels.pop() else {
+            unreachable!();
         };
+        assert!(matches!(label, Prop::Label(_)));
+        labels.sort_by_key(|alias| {
+            distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
+        });
+        for lbl in vec![label].into_iter().chain(labels) {
+            if !args.full_ids {
+                writeln!(output, "{}\t{}", lbl.as_str(), prop_to_id(prop.as_str()))?;
+            } else {
+                writeln!(output, "{}\t{}", lbl.as_str(), prop.as_str())?;
+            };
+        }
     }
 
     if args.inverse_output.is_some() {
