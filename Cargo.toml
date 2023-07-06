@@ -9,3 +9,4 @@ itertools = "0.11"
 anyhow = "1"
 clap = { version = "4.3", features = ["derive"] }
 indicatif = "0.17"
+text-correction-utils-rs = { path = "third_party/text-correction-utils" }

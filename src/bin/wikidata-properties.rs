@@ -149,28 +149,24 @@ fn main() -> anyhow::Result<()> {
     );
     println!("total unique:    {}", label_to_prop.len());
 
-    let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, prop) in label_to_prop.iter().sorted_by_key(|&(_, prop)| {
-        let is_alias = matches!(prop, Prop::Alias(_));
-        let prop_id = prop
-            .as_str()
-            .chars()
+    let prop_to_id = |prop: &str| {
+        prop.chars()
             .skip(1)
             .collect::<String>()
             .parse::<usize>()
-            .unwrap();
-        (prop_id, is_alias)
+            .unwrap()
+    };
+
+    let mut output = BufWriter::new(fs::File::create(args.output)?);
+    for (label, prop) in label_to_prop.iter().sorted_by_key(|&(_, prop)| {
+        let is_alias = matches!(prop, Prop::Alias(_));
+        (prop_to_id(prop.as_str()), is_alias)
     }) {
         if label.is_empty() || prop.as_str().is_empty() {
             continue;
         }
         if !args.full_ids {
-            writeln!(
-                output,
-                "{}\t{}",
-                label,
-                prop.as_str().chars().skip(1).collect::<String>()
-            )?;
+            writeln!(output, "{}\t{}", label, prop_to_id(prop.as_str()))?;
         } else {
             writeln!(output, "{}\t{}", label, prop.as_str())?;
         };

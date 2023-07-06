@@ -10,6 +10,7 @@ use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
 use sparql_data_preparation::{lines, progress_bar};
+use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -35,28 +36,30 @@ struct Args {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Ent {
     Label(String),
+    LabelDesc(String),
     Alias(String),
+    AliasDesc(String),
 }
 
 impl Ent {
     fn as_str(&self) -> &str {
         match self {
             Ent::Label(s) => s,
+            Ent::LabelDesc(s) => s,
             Ent::Alias(s) => s,
+            Ent::AliasDesc(s) => s,
         }
     }
 }
 
 impl Display for Ent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Ent::Label(s) => write!(f, "{}", s),
-            Ent::Alias(s) => write!(f, "{}", s),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 
 struct EntityInfo {
+    label: String,
     desc: String,
     aliases: Vec<String>,
     count: usize,
@@ -137,6 +140,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         let info = EntityInfo {
+            label,
             desc,
             aliases,
             count,
@@ -220,12 +224,12 @@ fn main() -> anyhow::Result<()> {
     let mut ents_left = HashSet::new();
     for (label, mut entities) in label_desc_to_ents {
         if entities.len() <= 1 {
-            label_to_ent.insert(label, Ent::Label(entities.into_iter().next().unwrap()));
+            label_to_ent.insert(label, Ent::LabelDesc(entities.into_iter().next().unwrap()));
             continue;
         } else if args.keep_most_common_non_unique {
             // same as above
             entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
-            label_to_ent.insert(label, Ent::Label(entities.pop().unwrap()));
+            label_to_ent.insert(label, Ent::LabelDesc(entities.pop().unwrap()));
         }
         // if the label and description are not unique
         // record the entities with entry yet to be preferred when adding aliases
@@ -253,23 +257,23 @@ fn main() -> anyhow::Result<()> {
     // go over aliases to make sure one entitiy can be found by multiple names
     let mut total_aliases = 0;
     ent_infos
-        .into_iter()
-        .sorted_by_key(|(ent, info)| (ents_left.contains(ent), info.count))
+        .iter()
+        .sorted_by_key(|&(ent, info)| (ents_left.contains(ent), info.count))
         .rev()
         .for_each(|(ent, info)| {
             total_aliases += info.aliases.len();
-            for alias in info.aliases {
+            for alias in &info.aliases {
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
                     entry.insert(Ent::Alias(ent.clone()));
-                    ents_left.remove(&ent);
+                    ents_left.remove(ent);
                     continue;
                 } else if info.desc.is_empty() {
                     continue;
                 }
                 let alias_desc = format!("{} ({})", alias, info.desc);
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias_desc) {
-                    entry.insert(Ent::Alias(ent.clone()));
-                    ents_left.remove(&ent);
+                    entry.insert(Ent::AliasDesc(ent.clone()));
+                    ents_left.remove(ent);
                 }
             }
         });
@@ -292,29 +296,81 @@ fn main() -> anyhow::Result<()> {
     );
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, ent) in label_to_ent.into_iter().sorted_by_key(|(_, ent)| {
-        let is_alias = matches!(ent, Ent::Alias(_));
-        let ent_id = ent
-            .as_str()
-            .chars()
+    let mut output_dict = HashMap::new();
+    for (label, ent) in label_to_ent {
+        output_dict
+            .entry(ent.to_string())
+            .or_insert_with(Vec::new)
+            .push(match ent {
+                Ent::Label(_) => Ent::Label(label),
+                Ent::Alias(_) => Ent::Alias(label),
+                Ent::LabelDesc(_) => Ent::LabelDesc(label),
+                Ent::AliasDesc(_) => Ent::AliasDesc(label),
+            });
+    }
+
+    let ent_to_id = |ent: &str| {
+        ent.chars()
             .skip(1)
             .collect::<String>()
             .parse::<usize>()
-            .unwrap();
-        (ent_id, is_alias)
-    }) {
-        if label.is_empty() || ent.as_str().is_empty() {
-            continue;
-        }
-        if !args.full_ids {
-            writeln!(
-                output,
-                "{}\t{}",
-                label,
-                ent.as_str().chars().skip(1).collect::<String>()
-            )?;
+            .unwrap()
+    };
+
+    for (ent, labels) in output_dict
+        .into_iter()
+        .sorted_by_key(|(ent, _)| ent_to_id(ent))
+    {
+        let org_label: Vec<_> = labels
+            .iter()
+            .filter(|l| matches!(l, Ent::Label(_)))
+            .collect();
+        let desc_label: Vec<_> = labels
+            .iter()
+            .filter(|l| matches!(l, Ent::LabelDesc(_)))
+            .collect();
+        let mut aliases = labels
+            .iter()
+            .filter(|l| matches!(l, Ent::Alias(_)))
+            .collect::<Vec<_>>();
+        let mut alias_descs = labels
+            .iter()
+            .filter(|l| matches!(l, Ent::AliasDesc(_)))
+            .collect::<Vec<_>>();
+        assert!(
+            org_label.len() + desc_label.len() <= 1,
+            "expected either an original label or a label + descprition, but got {org_label:#?} and {desc_label:#?}"
+        );
+        let label = if let Some(label) = org_label.iter().chain(&desc_label).next() {
+            label.to_string()
         } else {
-            writeln!(output, "{}\t{}", label, ent.as_str())?;
+            let info = ent_infos.get(&ent).unwrap();
+            if !aliases.is_empty() || info.desc.is_empty() {
+                info.label.clone()
+            } else {
+                format!("{} ({})", info.label, info.desc)
+            }
+        };
+        aliases.sort_by_key(|&alias| {
+            distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
+        });
+        alias_descs.sort_by_key(|&alias| {
+            distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
+        });
+        for lbl in org_label
+            .into_iter()
+            .chain(desc_label)
+            .chain(aliases)
+            .chain(alias_descs)
+        {
+            if lbl.as_str().is_empty() {
+                continue;
+            }
+            if !args.full_ids {
+                writeln!(output, "{}\t{}", lbl.as_str(), ent_to_id(ent.as_str()))?;
+            } else {
+                writeln!(output, "{}\t{}", lbl.as_str(), &ent)?;
+            }
         }
     }
 
