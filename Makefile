@@ -13,7 +13,7 @@ compute_properties:
 		--file $(OUT_DIR)/wikidata-properties.tsv \
 		--output $(OUT_DIR)/wikidata-properties-index.tsv \
 		--inverse-output $(OUT_DIR)/wikidata-properties-inverse-index.tsv \
-		--keep-most-common-non-unique > $(OUT_DIR)/wikidata-properties-output.txt
+		> $(OUT_DIR)/wikidata-properties-output.txt
 
 .PHONY: download_entities
 download_entities:

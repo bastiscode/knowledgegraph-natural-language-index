@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
+    fmt::Display,
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
@@ -29,6 +30,30 @@ struct Args {
 
     #[clap(short, long)]
     full_ids: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Ent {
+    Label(String),
+    Alias(String),
+}
+
+impl Ent {
+    fn as_str(&self) -> &str {
+        match self {
+            Ent::Label(s) => s,
+            Ent::Alias(s) => s,
+        }
+    }
+}
+
+impl Display for Ent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Ent::Label(s) => write!(f, "{}", s),
+            Ent::Alias(s) => write!(f, "{}", s),
+        }
+    }
 }
 
 struct EntityInfo {
@@ -100,7 +125,7 @@ fn main() -> anyhow::Result<()> {
         label_to_ents
             .entry(label.clone())
             .or_insert_with(Vec::new)
-            .push(ent.clone());
+            .push(Ent::Label(ent.clone()));
 
         if args.check_for_popular_aliases {
             for alias in &aliases {
@@ -122,6 +147,9 @@ fn main() -> anyhow::Result<()> {
     pbar.finish_and_clear();
 
     let num_ents = ent_infos.len();
+
+    // filter out aliases that are aliases for multiple entities
+    aliases_to_ents.retain(|_, ents| ents.len() <= 1);
 
     let check_for_more_popular_alias = |label: &str, ent: &str| {
         let Some(alias_ents) = aliases_to_ents.get(label) else {
@@ -151,9 +179,9 @@ fn main() -> anyhow::Result<()> {
     assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
     let mut label_desc_to_ents = HashMap::new();
     for (label, mut entities) in label_to_ents {
-        assert!(entities.len() > 0);
+        assert!(!entities.is_empty());
         if entities.len() <= 1 {
-            let alias_ent = check_for_more_popular_alias(&label, &entities[0]);
+            let alias_ent = check_for_more_popular_alias(&label, entities[0].as_str());
             if !args.check_for_popular_aliases || alias_ent.is_none() {
                 label_to_ent.insert(label, entities.into_iter().next().unwrap());
                 continue;
@@ -161,17 +189,18 @@ fn main() -> anyhow::Result<()> {
         } else if args.keep_most_common_non_unique {
             // if we have multiple entities with the same label, we keep the most common one
             // as the one being identified by just the label
-            entities.sort_by_key(|ent| ent_infos.get(ent).unwrap().count);
+            entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
             // keep the most popular one only if its label is not an alias
             // of a more popular entity
-            let alias_ent = check_for_more_popular_alias(&label, entities.last().unwrap());
+
+            let alias_ent = check_for_more_popular_alias(&label, entities.last().unwrap().as_str());
             if !args.check_for_popular_aliases || alias_ent.is_none() {
                 label_to_ent.insert(label.clone(), entities.pop().unwrap());
             }
         }
         // if the label alone is not unique, we add the description to it and try again
         for ent in entities {
-            let desc = &ent_infos.get(&ent).unwrap().desc;
+            let desc = &ent_infos.get(ent.as_str()).unwrap().desc;
             if desc.is_empty() {
                 continue;
             }
@@ -182,7 +211,7 @@ fn main() -> anyhow::Result<()> {
             label_desc_to_ents
                 .entry(label_desc)
                 .or_insert_with(Vec::new)
-                .push(ent);
+                .push(ent.to_string());
         }
     }
     let num_label_unique = label_to_ent.len();
@@ -191,12 +220,12 @@ fn main() -> anyhow::Result<()> {
     let mut ents_left = HashSet::new();
     for (label, mut entities) in label_desc_to_ents {
         if entities.len() <= 1 {
-            label_to_ent.insert(label, entities.into_iter().next().unwrap());
+            label_to_ent.insert(label, Ent::Label(entities.into_iter().next().unwrap()));
             continue;
         } else if args.keep_most_common_non_unique {
             // same as above
-            entities.sort_by_key(|ent| ent_infos.get(ent).unwrap().count);
-            label_to_ent.insert(label, entities.pop().unwrap());
+            entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
+            label_to_ent.insert(label, Ent::Label(entities.pop().unwrap()));
         }
         // if the label and description are not unique
         // record the entities with entry yet to be preferred when adding aliases
@@ -231,7 +260,7 @@ fn main() -> anyhow::Result<()> {
             total_aliases += info.aliases.len();
             for alias in info.aliases {
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
-                    entry.insert(ent.clone());
+                    entry.insert(Ent::Alias(ent.clone()));
                     ents_left.remove(&ent);
                     continue;
                 } else if info.desc.is_empty() {
@@ -239,7 +268,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 let alias_desc = format!("{} ({})", alias, info.desc);
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias_desc) {
-                    entry.insert(ent.clone());
+                    entry.insert(Ent::Alias(ent.clone()));
                     ents_left.remove(&ent);
                 }
             }
@@ -254,15 +283,39 @@ fn main() -> anyhow::Result<()> {
     println!("final index size:         {}", label_to_ent.len());
     println!(
         "final index coverage:     {:.2}%",
-        100.0 * label_to_ent.iter().unique_by(|&(_, ent)| ent).count() as f32 / num_ents as f32
+        100.0
+            * label_to_ent
+                .iter()
+                .unique_by(|&(_, ent)| ent.as_str())
+                .count() as f32
+            / num_ents as f32
     );
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, mut ent) in label_to_ent {
+    for (label, ent) in label_to_ent.into_iter().sorted_by_key(|(_, ent)| {
+        let is_alias = matches!(ent, Ent::Alias(_));
+        let ent_id = ent
+            .as_str()
+            .chars()
+            .skip(1)
+            .collect::<String>()
+            .parse::<usize>()
+            .unwrap();
+        (ent_id, is_alias)
+    }) {
+        if label.is_empty() || ent.as_str().is_empty() {
+            continue;
+        }
         if !args.full_ids {
-            ent = ent.chars().skip(1).collect();
-        };
-        writeln!(output, "{}\t{}", label, ent)?;
+            writeln!(
+                output,
+                "{}\t{}",
+                label,
+                ent.as_str().chars().skip(1).collect::<String>()
+            )?;
+        } else {
+            writeln!(output, "{}\t{}", label, ent.as_str())?;
+        }
     }
 
     Ok(())

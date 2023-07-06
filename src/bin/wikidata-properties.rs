@@ -28,10 +28,22 @@ struct Args {
     progress: bool,
 
     #[clap(short, long)]
-    keep_most_common_non_unique: bool,
-
-    #[clap(short, long)]
     full_ids: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Prop {
+    Label(String),
+    Alias(String),
+}
+
+impl Prop {
+    fn as_str(&self) -> &str {
+        match self {
+            Prop::Label(s) => s,
+            Prop::Alias(s) => s,
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -96,14 +108,14 @@ fn main() -> anyhow::Result<()> {
                         .collect::<String>()
                         .parse::<usize>()
                         .unwrap();
-                    let _ = inverse_props
+                    inverse_props
                         .entry(prop.clone())
                         .or_insert_with(|| (prop_num, vec![]))
                         .1
                         .push((inv, inv_num));
                 });
         }
-        let existing = label_to_prop.insert(label.clone(), prop.clone());
+        let existing = label_to_prop.insert(label.clone(), Prop::Label(prop.clone()));
         assert!(existing.is_none(), "labels for properties should be unique");
         if !args.no_aliases {
             for alias in aliases {
@@ -119,19 +131,11 @@ fn main() -> anyhow::Result<()> {
     let num_label_unique = label_to_prop.len();
 
     for (alias, props) in alias_to_prop {
+        if props.len() != 1 {
+            continue;
+        }
         if let Entry::Vacant(entry) = label_to_prop.entry(alias) {
-            if props.len() <= 1 {
-                entry.insert(props.into_iter().next().unwrap().0);
-            } else {
-                entry.insert(
-                    props
-                        .into_iter()
-                        .sorted_by_key(|(_, prop_num)| *prop_num)
-                        .next()
-                        .unwrap()
-                        .0,
-                );
-            }
+            entry.insert(Prop::Alias(props.into_iter().next().unwrap().0));
         }
     }
 
@@ -146,14 +150,30 @@ fn main() -> anyhow::Result<()> {
     println!("total unique:    {}", label_to_prop.len());
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for (label, mut prop) in label_to_prop {
-        if label.is_empty() || prop.is_empty() {
+    for (label, prop) in label_to_prop.iter().sorted_by_key(|&(_, prop)| {
+        let is_alias = matches!(prop, Prop::Alias(_));
+        let prop_id = prop
+            .as_str()
+            .chars()
+            .skip(1)
+            .collect::<String>()
+            .parse::<usize>()
+            .unwrap();
+        (prop_id, is_alias)
+    }) {
+        if label.is_empty() || prop.as_str().is_empty() {
             continue;
         }
         if !args.full_ids {
-            prop = prop.chars().skip(1).collect();
+            writeln!(
+                output,
+                "{}\t{}",
+                label,
+                prop.as_str().chars().skip(1).collect::<String>()
+            )?;
+        } else {
+            writeln!(output, "{}\t{}", label, prop.as_str())?;
         };
-        writeln!(output, "{}\t{}", label, prop)?;
     }
 
     if args.inverse_output.is_some() {
