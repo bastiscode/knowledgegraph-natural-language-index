@@ -8,7 +8,7 @@ use std::{
 use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
-use sparql_data_preparation::{lines, progress_bar};
+use sparql_data_preparation::{line_iter, progress_bar};
 use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
@@ -30,6 +30,9 @@ struct Args {
 
     #[clap(short, long)]
     full_ids: bool,
+
+    #[clap(short, long)]
+    include_qualifiers: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -47,11 +50,22 @@ impl Prop {
     }
 }
 
-fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+fn qualifiers(label: &str) -> Vec<(String, String)> {
+    vec![
+        (format!("{label} (statement)"), "p".to_string()),
+        (format!("{label} (qualifier)"), "pq".to_string()),
+        (format!("{label} (value)"), "ps".to_string()),
+    ]
+}
 
-    let num_lines = lines(&args.file)?.count();
-    let mut lines = lines(&args.file)?;
+fn main() -> anyhow::Result<()> {
+    let mut args = Args::parse();
+    if args.include_qualifiers {
+        args.full_ids = true;
+    }
+
+    let num_lines = line_iter(&args.file)?.count();
+    let mut lines = line_iter(&args.file)?;
 
     let header = lines.next().expect("file should have at least 1 line")?;
     assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 4);
@@ -150,12 +164,12 @@ fn main() -> anyhow::Result<()> {
     );
     println!("total unique:    {}", label_to_prop.len());
 
-    let prop_to_id = |prop: &str| {
-        prop.chars()
-            .skip(1)
-            .collect::<String>()
-            .parse::<usize>()
-            .unwrap()
+    let format_prop = |prop: &str, pfx: &str| {
+        if args.full_ids {
+            format!("{pfx}:{prop}")
+        } else {
+            prop.chars().skip(1).collect::<String>()
+        }
     };
 
     let mut output = BufWriter::new(fs::File::create(args.output)?);
@@ -171,7 +185,7 @@ fn main() -> anyhow::Result<()> {
     }
     for (prop, mut labels) in output_dict
         .into_iter()
-        .sorted_by_key(|(prop, _)| prop_to_id(prop))
+        .sorted_by_key(|(prop, _)| prop.clone())
     {
         labels.sort_by_key(|label| matches!(label, Prop::Label(_)));
         let Some(label) = labels.pop() else {
@@ -181,13 +195,37 @@ fn main() -> anyhow::Result<()> {
         labels.sort_by_key(|alias| {
             distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
         });
-        for lbl in vec![label].into_iter().chain(labels) {
-            if !args.full_ids {
-                writeln!(output, "{}\t{}", lbl.as_str(), prop_to_id(prop.as_str()))?;
-            } else {
-                writeln!(output, "{}\t{}", lbl.as_str(), prop.as_str())?;
-            };
+
+        writeln!(
+            output,
+            "{}\t\t{}",
+            format_prop(prop.as_str(), "wdt"),
+            vec![&label]
+                .into_iter()
+                .chain(&labels)
+                .map(|p| p.as_str())
+                .join("\t")
+        )?;
+        if !args.include_qualifiers {
+            continue;
         }
+        vec![&label]
+            .into_iter()
+            .chain(&labels)
+            .flat_map(|l| qualifiers(l.as_str()))
+            .fold(HashMap::new(), |mut map, (lbl, pfx)| {
+                map.entry(pfx).or_insert_with(Vec::new).push(lbl);
+                map
+            })
+            .into_iter()
+            .try_for_each(|(pfx, lbls)| {
+                writeln!(
+                    output,
+                    "{}\t\t{}",
+                    format_prop(prop.as_str(), &pfx),
+                    lbls.join("\t")
+                )
+            })?;
     }
 
     if args.inverse_output.is_some() {
@@ -201,15 +239,16 @@ fn main() -> anyhow::Result<()> {
             .collect();
         let num_inverse = inverse_props.len();
         let mut inverse_output = BufWriter::new(fs::File::create(args.inverse_output.unwrap())?);
-        for (mut prop, _, mut inv, _) in inverse_props.into_iter() {
+        for (prop, _, inv, _) in inverse_props.into_iter() {
             if prop.is_empty() || inv.is_empty() {
                 continue;
             }
-            if !args.full_ids {
-                prop = prop.chars().skip(1).collect();
-                inv = inv.chars().skip(1).collect();
-            };
-            writeln!(inverse_output, "{}\t{}", prop, inv)?;
+            writeln!(
+                inverse_output,
+                "{}\t{}",
+                format_prop(&prop, "wdt"),
+                format_prop(&inv, "wdt")
+            )?;
         }
         println!();
         println!("Wikidata inverse properties");

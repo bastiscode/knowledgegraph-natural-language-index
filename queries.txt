@@ -1,16 +1,18 @@
 # All entities in Wikidata with name, description, number of links, and aliases
 
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX wikibase: <http://wikiba.se/ontology#>
 PREFIX schema: <http://schema.org/>
 PREFIX wdt: <http://www.wikidata.org/prop/direct/>
-PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 SELECT 
   ?entity 
   ?entity_name 
   ?entity_description
   (MAX(?sitelinks) AS ?links)
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
   WHERE 
 {
   { 
@@ -33,9 +35,25 @@ SELECT
     ?entity skos:altLabel ?alias .
     FILTER (LANG(?alias) = "en") .
   }
+  OPTIONAL {
+    ?redir owl:sameAs ?entity .
+  }
 }
 GROUP BY ?entity ?entity_name ?entity_description
 ORDER BY DESC(?links)
+
+# All entity redirects
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT 
+  ?ent 
+  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
+WHERE {
+  ?redir owl:sameAs ?ent .
+  FILTER(REGEX(STR(?ent), "entity/Q\d+"))
+}
+GROUP BY ?ent
 
 # All direct properties in Wikidata with name, aliases, and inverse properties
 

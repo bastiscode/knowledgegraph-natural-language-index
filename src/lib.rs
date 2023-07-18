@@ -4,7 +4,7 @@ use std::{fs, io::BufReader};
 
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
-pub fn lines(
+pub fn line_iter(
     file: impl AsRef<Path>,
 ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<String>>> {
     let file = fs::File::open(file)?;

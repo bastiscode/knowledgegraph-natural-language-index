@@ -9,7 +9,7 @@ use std::{
 use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
-use sparql_data_preparation::{lines, progress_bar};
+use sparql_data_preparation::{line_iter, progress_bar};
 use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
@@ -19,6 +19,9 @@ struct Args {
 
     #[clap(short, long)]
     output: PathBuf,
+
+    #[clap(short, long)]
+    redirects: Option<PathBuf>,
 
     #[clap(short, long)]
     progress: bool,
@@ -63,13 +66,14 @@ struct EntityInfo {
     desc: String,
     aliases: Vec<String>,
     count: usize,
+    redirects: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let num_lines = lines(&args.file)?.count();
-    let mut lines = lines(&args.file)?;
+    let num_lines = line_iter(&args.file)?.count();
+    let mut lines = line_iter(&args.file)?;
 
     let header = lines.next().expect("file should have at least 1 line")?;
     assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 5);
@@ -77,6 +81,30 @@ fn main() -> anyhow::Result<()> {
     let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
     let text_pattern = Regex::new("^\"(.*)\"@en$")?;
 
+    let redirects = if let Some(path) = args.redirects {
+        let mut redirects = HashMap::new();
+        for line in line_iter(&path)? {
+            let line = line?;
+            let splits: Vec<_> = line.split_terminator('\t').collect();
+            assert_eq!(splits.len(), 2);
+            let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
+                ent.get(1).unwrap().as_str().to_string()
+            } else {
+                continue;
+            };
+            let redirs: Vec<_> = ent_pattern
+                .captures_iter(splits[1].trim())
+                .map(|m| m.get(1).unwrap().as_str().to_string())
+                .collect();
+            if redirs.is_empty() {
+                continue;
+            }
+            redirects.insert(ent, redirs);
+        }
+        redirects
+    } else {
+        HashMap::new()
+    };
     let mut ent_infos = HashMap::new();
     let mut label_to_ents = HashMap::new();
     let mut aliases_to_ents = HashMap::new();
@@ -144,6 +172,7 @@ fn main() -> anyhow::Result<()> {
             desc,
             aliases,
             count,
+            redirects: redirects.get(&ent).cloned().unwrap_or_default(),
         };
         let existing = ent_infos.insert(ent, info);
         assert!(existing.is_none(), "entities should be unique");
@@ -309,17 +338,17 @@ fn main() -> anyhow::Result<()> {
             });
     }
 
-    let ent_to_id = |ent: &str| {
-        ent.chars()
-            .skip(1)
-            .collect::<String>()
-            .parse::<usize>()
-            .unwrap()
+    let format_ent = |ent: &str| {
+        if args.full_ids {
+            format!("wd:{}", ent)
+        } else {
+            ent.chars().skip(1).collect::<String>()
+        }
     };
 
     for (ent, labels) in output_dict
         .into_iter()
-        .sorted_by_key(|(ent, _)| ent_to_id(ent))
+        .sorted_by_key(|(ent, _)| format_ent(ent))
     {
         let org_label: Vec<_> = labels
             .iter()
@@ -341,15 +370,13 @@ fn main() -> anyhow::Result<()> {
             org_label.len() + desc_label.len() <= 1,
             "expected either an original label or a label + descprition, but got {org_label:#?} and {desc_label:#?}"
         );
+        let info = ent_infos.get(&ent).unwrap();
         let label = if let Some(label) = org_label.iter().chain(&desc_label).next() {
             label.to_string()
+        } else if !aliases.is_empty() || info.desc.is_empty() {
+            info.label.clone()
         } else {
-            let info = ent_infos.get(&ent).unwrap();
-            if !aliases.is_empty() || info.desc.is_empty() {
-                info.label.clone()
-            } else {
-                format!("{} ({})", info.label, info.desc)
-            }
+            format!("{} ({})", info.label, info.desc)
         };
         aliases.sort_by_key(|&alias| {
             distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
@@ -357,21 +384,22 @@ fn main() -> anyhow::Result<()> {
         alias_descs.sort_by_key(|&alias| {
             distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
         });
-        for lbl in org_label
-            .into_iter()
-            .chain(desc_label)
-            .chain(aliases)
-            .chain(alias_descs)
-        {
-            if lbl.as_str().is_empty() {
-                continue;
-            }
-            if !args.full_ids {
-                writeln!(output, "{}\t{}", lbl.as_str(), ent_to_id(ent.as_str()))?;
-            } else {
-                writeln!(output, "{}\t{}", lbl.as_str(), &ent)?;
-            }
-        }
+        writeln!(
+            output,
+            "{}\t{}\t{}",
+            format_ent(ent.as_str()),
+            info.redirects
+                .iter()
+                .map(|r| format_ent(r.as_str()))
+                .join(";"),
+            org_label
+                .into_iter()
+                .chain(desc_label)
+                .chain(aliases)
+                .chain(alias_descs)
+                .filter(|&l| !l.as_str().is_empty())
+                .join("\t")
+        )?;
     }
 
     Ok(())
