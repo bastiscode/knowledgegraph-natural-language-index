@@ -37,13 +37,13 @@ download_redirects:
 
 .PHONY: compute_entities
 compute_entities:
-	# @$(CARGO) run --bin wikidata-entities --release -- \
-	# 	--file $(OUT_DIR)/wikidata-entities.tsv \
-	# 	--output $(OUT_DIR)/wikidata-entities-index.tsv \
-	# 	--keep-most-common-non-unique \
-	# 	--full-ids \
-	# 	--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
-	# 	> $(OUT_DIR)/wikidata-entities-output.txt
+	@$(CARGO) run --bin wikidata-entities --release -- \
+		--file $(OUT_DIR)/wikidata-entities.tsv \
+		--output $(OUT_DIR)/wikidata-entities-index.tsv \
+		--keep-most-common-non-unique \
+		--full-ids \
+		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
+		> $(OUT_DIR)/wikidata-entities-output.txt
 	@$(CARGO) run --bin wikidata-entities --release -- \
 		--file $(OUT_DIR)/wikidata-entities.tsv \
 		--output $(OUT_DIR)/wikidata-entities-popular-index.tsv \
