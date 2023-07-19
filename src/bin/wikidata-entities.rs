@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     fmt::Display,
@@ -274,7 +275,7 @@ fn main() -> anyhow::Result<()> {
             label_to_ent.insert(label, Ent::LabelDesc(entities.pop().unwrap()));
         }
         // if the label and description are not unique
-        // record the entities with entry yet to be preferred when adding aliases
+        // record the entities with no entry for statistics
         ents_left.extend(entities);
     }
     pbar.finish_and_clear();
@@ -294,7 +295,7 @@ fn main() -> anyhow::Result<()> {
         "label and desc coverage:  {:.2}%",
         100.0 * num_label_desc_unique as f32 / num_ents as f32
     );
-    println!("entities left before:     {}", ents_left.len(),);
+    println!("entities left:            {}", ents_left.len());
 
     // now we have all unique entities
     // go over aliases to make sure one entitiy can be found by multiple names
@@ -302,7 +303,7 @@ fn main() -> anyhow::Result<()> {
     let pbar = progress_bar("adding aliases", ent_infos.len() as u64, !args.progress);
     ent_infos
         .iter()
-        .sorted_by_key(|&(ent, info)| (ents_left.contains(ent), info.count))
+        .sorted_by_key(|&(_, info)| (info.count))
         .rev()
         .for_each(|(ent, info)| {
             pbar.inc(1);
@@ -310,7 +311,6 @@ fn main() -> anyhow::Result<()> {
             for alias in &info.aliases {
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
                     entry.insert(Ent::Alias(ent.clone()));
-                    ents_left.remove(ent);
                     continue;
                 } else if info.desc.is_empty() {
                     continue;
@@ -318,7 +318,6 @@ fn main() -> anyhow::Result<()> {
                 let alias_desc = format!("{} ({})", alias, info.desc);
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias_desc) {
                     entry.insert(Ent::AliasDesc(ent.clone()));
-                    ents_left.remove(ent);
                 }
             }
         });
@@ -329,7 +328,6 @@ fn main() -> anyhow::Result<()> {
         label_to_ent.len() - num_label_desc_unique,
         100.0 * (label_to_ent.len() - num_label_desc_unique) as f32 / total_aliases as f32
     );
-    println!("entities left after:      {}", ents_left.len(),);
     println!("final index size:         {}", label_to_ent.len());
     println!(
         "final index coverage:     {:.2}%",
@@ -341,7 +339,6 @@ fn main() -> anyhow::Result<()> {
             / num_ents as f32
     );
 
-    let mut output = BufWriter::new(fs::File::create(args.output)?);
     let mut output_dict = HashMap::new();
     for (label, ent) in label_to_ent {
         output_dict
@@ -363,8 +360,8 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let pbar = progress_bar("writing output", output_dict.len() as u64, !args.progress);
-    for (ent, labels) in output_dict {
+    let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
+    let outputs: Vec<_> = output_dict.into_par_iter().map(|(ent, labels)| {
         pbar.inc(1);
         let org_label: Vec<_> = labels
             .iter()
@@ -400,8 +397,7 @@ fn main() -> anyhow::Result<()> {
         alias_descs.sort_by_key(|&alias| {
             distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
         });
-        writeln!(
-            output,
+        format!(
             "{}\t{}\t{}",
             format_ent(ent.as_str()),
             info.redirects
@@ -415,7 +411,16 @@ fn main() -> anyhow::Result<()> {
                 .chain(alias_descs)
                 .filter(|&l| !l.as_str().is_empty())
                 .join("\t")
-        )?;
+        )
+    }).collect();
+    pbar.finish_and_clear();
+
+    // finally write the output
+    let pbar = progress_bar("writing output", outputs.len() as u64, !args.progress);
+    let mut output = BufWriter::new(fs::File::create(args.output)?);
+    for line in outputs {
+        pbar.inc(1);
+        writeln!(output, "{}", line)?;
     }
     pbar.finish_and_clear();
 
