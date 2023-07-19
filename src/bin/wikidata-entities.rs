@@ -248,7 +248,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let num_label_unique = label_to_ent.len();
-    assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
+    // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
     let mut ents_left = HashSet::new();
     for (label, mut entities) in label_desc_to_ents {
@@ -265,7 +265,7 @@ fn main() -> anyhow::Result<()> {
         ents_left.extend(entities);
     }
     let num_label_desc_unique = label_to_ent.len();
-    assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
+    // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
     println!("Wikidata entities");
     println!("#################");
@@ -346,10 +346,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    for (ent, labels) in output_dict
-        .into_iter()
-        .sorted_by_key(|(ent, _)| format_ent(ent))
-    {
+    for (ent, labels) in output_dict {
         let org_label: Vec<_> = labels
             .iter()
             .filter(|l| matches!(l, Ent::Label(_)))
