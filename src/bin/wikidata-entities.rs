@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     let redirects = if let Some(path) = args.redirects {
         let pbar = progress_bar("loading entity redirects", u64::MAX, !args.progress);
         let lines: Vec<_> = pbar
-            .wrap_iter(line_iter(&args.file)?)
+            .wrap_iter(line_iter(path)?)
             .collect::<anyhow::Result<_>>()?;
         let mut redirects = HashMap::new();
         let pbar = progress_bar(
