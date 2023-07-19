@@ -1,45 +1,49 @@
 # All entities in Wikidata with name, description, number of links, and aliases
+# entity is defined as something that has a pic, or is a subclass or instance of something
+# that has a pic, or something that has a Wikipedia article
 
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX wikibase: <http://wikiba.se/ontology#>
 PREFIX schema: <http://schema.org/>
 PREFIX wdt: <http://www.wikidata.org/prop/direct/>
 SELECT 
-  ?entity 
-  ?entity_name 
-  ?entity_description
+  ?ent 
+  ?ent_name 
+  ?ent_description
   (MAX(?sitelinks) AS ?links)
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
-  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
   WHERE 
 {
-  { 
-    ?entity wdt:P18 ?pic . 
+  {
+    SELECT ?ent WHERE {
+      ?ent wdt:P279*/wdt:P18 ?pic .
+	} GROUP BY ?ent
+  } UNION {
+    SELECT ?ent WHERE {
+      ?ent wdt:P31*/wdt:P18 ?pic .
+	} GROUP BY ?ent
+  } UNION { 
+    SELECT ?ent WHERE {
+      ?ent wdt:P279*/^schema:about/schema:isPartOf ?wiki .
+      FILTER(REGEX(STR(?wiki), "^https?://.*.wikipedia.org")) .
+	} GROUP BY ?ent
   }
-  UNION
-  { 
-    ?article schema:about ?entity .
-    ?article schema:isPartOf ?wiki .
-    FILTER(REGEX(STR(?wiki), "^https?://.*.wikipedia.org")) .
-  }
-  ?entity ^schema:about/wikibase:sitelinks ?sitelinks . 
-  ?entity rdfs:label ?entity_name .
-  FILTER (LANG(?entity_name) = "en") .
+  ?ent rdfs:label ?ent_name .
+  FILTER (LANG(?ent_name) = "en") .
   OPTIONAL {
-    ?entity schema:description ?entity_description .
-    FILTER (LANG(?entity_description) = "en") .
+    ?ent ^schema:about/wikibase:sitelinks ?sitelinks . 
   }
   OPTIONAL {
-    ?entity skos:altLabel ?alias .
+    ?ent schema:description ?ent_description .
+    FILTER (LANG(?ent_description) = "en") .
+  }
+  OPTIONAL {
+    ?ent skos:altLabel ?alias .
     FILTER (LANG(?alias) = "en") .
   }
-  OPTIONAL {
-    ?redir owl:sameAs ?entity .
-  }
 }
-GROUP BY ?entity ?entity_name ?entity_description
+GROUP BY ?ent ?ent_name ?ent_description
 ORDER BY DESC(?links)
 
 # All entity redirects
@@ -51,7 +55,7 @@ SELECT
   (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
 WHERE {
   ?redir owl:sameAs ?ent .
-  FILTER(REGEX(STR(?ent), "entity/Q\d+"))
+  FILTER(REGEX(STR(?ent), "entity/Q\\d+"))
 }
 GROUP BY ?ent
 
