@@ -38,37 +38,44 @@ struct Args {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Ent {
-    Label(String),
-    LabelDesc(String),
-    Alias(String),
-    AliasDesc(String),
+enum Ent<'a> {
+    Label(&'a str),
+    LabelDesc(&'a str),
+    Alias(&'a str),
+    AliasDesc(&'a str),
 }
 
-impl Ent {
+impl Ent<'_> {
+    fn to_string(&self) -> String {
+        match self {
+            Ent::Label(s) | Ent::Alias(s) => s.to_string(),
+            Ent::LabelDesc(l, d) | Ent::AliasDesc(l, d) => format!("{} ({})", l, d),
+        }
+    }
+
     fn as_str(&self) -> &str {
         match self {
-            Ent::Label(s) => s,
-            Ent::LabelDesc(s) => s,
-            Ent::Alias(s) => s,
-            Ent::AliasDesc(s) => s,
+            Ent::Label(s) | Ent::LabelDesc(s, _) => s,
+            Ent::Alias(s) | Ent::AliasDesc(s, _) => s,
         }
     }
 }
 
-impl Display for Ent {
+impl Display for Ent<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+        write!(f, "{}", self.to_string())
     }
 }
 
-struct EntityInfo {
-    label: String,
-    desc: String,
-    aliases: Vec<String>,
+struct EntityInfo<'a> {
+    label: &'a str,
+    desc: &'a str,
+    aliases: Vec<&'a str>,
     count: usize,
-    redirects: Vec<String>,
+    redirects: Option<&'a Vec<String>>,
 }
+
+type EntityInfo2 = (String, String, Vec<String>, usize, Vec<String>);
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -80,6 +87,13 @@ fn main() -> anyhow::Result<()> {
 
     let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
     let text_pattern = Regex::new("^\"(.*)\"@en$")?;
+
+    // print memory consumption of entity info
+    println!(
+        "entity info memory consumption: {}B, entity info 2 memory consumption: {}B",
+        std::mem::size_of::<EntityInfo>(),
+        std::mem::size_of::<EntityInfo2>()
+    );
 
     let redirects = if let Some(path) = args.redirects {
         let mut redirects = HashMap::new();
@@ -119,20 +133,20 @@ fn main() -> anyhow::Result<()> {
         num_lines as u64,
         !args.progress,
     );
-    for line in lines {
+    let lines: Vec<_> = line_iter(&args.file)?.collect::<anyhow::Result<_>>()?;
+    for line in &lines {
         pbar.inc(1);
-        let line = line?;
         let splits: Vec<_> = line.split_terminator('\t').collect();
         assert!(splits.len() <= 5);
 
         let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
-            ent.get(1).unwrap().as_str().to_string()
+            ent.get(1).unwrap().as_str()
         } else {
             continue;
         };
 
         let label = if let Some(ent_label) = text_pattern.captures(splits[1]) {
-            ent_label.get(1).unwrap().as_str().trim().to_string()
+            ent_label.get(1).unwrap().as_str().trim()
         } else {
             continue;
         };
@@ -141,16 +155,16 @@ fn main() -> anyhow::Result<()> {
         }
 
         let desc = if let Some(ent_desc) = text_pattern.captures(splits[2]) {
-            ent_desc.get(1).unwrap().as_str().trim().to_string()
+            ent_desc.get(1).unwrap().as_str().trim()
         } else {
-            "".to_string()
+            ""
         };
         let count = splits[3].parse::<usize>()?;
 
         let aliases: Vec<_> = if splits.len() > 4 {
             splits[4]
                 .split_terminator(';')
-                .map(|s| s.trim().to_string())
+                .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
                 .sorted()
                 .collect()
@@ -161,7 +175,7 @@ fn main() -> anyhow::Result<()> {
         label_to_ents
             .entry(label.clone())
             .or_insert_with(Vec::new)
-            .push(Ent::Label(ent.clone()));
+            .push(Ent::Label(ent));
 
         if args.check_for_popular_aliases {
             for alias in &aliases {
@@ -177,7 +191,7 @@ fn main() -> anyhow::Result<()> {
             desc,
             aliases,
             count,
-            redirects: redirects.get(&ent).cloned().unwrap_or_default(),
+            redirects: redirects.get(ent),
         };
         let existing = ent_infos.insert(ent, info);
         assert!(existing.is_none(), "entities should be unique");
@@ -196,7 +210,7 @@ fn main() -> anyhow::Result<()> {
         let info = ent_infos.get(ent).unwrap();
         let Some((alias_ent, alias_count)) = alias_ents
             .iter()
-            .filter_map(|alias_ent| {
+            .filter_map(|&alias_ent| {
                 if alias_ent == ent {
                     return None;
                 }
@@ -213,7 +227,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     // initialize the final label to entity mapping
-    let mut label_to_ent = HashMap::new();
+    let mut label_to_ent: HashMap<(&str, Option<&str>), _> = HashMap::new();
     assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
     let mut label_desc_to_ents = HashMap::new();
     let pbar = progress_bar(
@@ -227,7 +241,7 @@ fn main() -> anyhow::Result<()> {
         if entities.len() <= 1 {
             let alias_ent = check_for_more_popular_alias(&label, entities[0].as_str());
             if !args.check_for_popular_aliases || alias_ent.is_none() {
-                label_to_ent.insert(label, entities.into_iter().next().unwrap());
+                label_to_ent.insert((label, None), entities.into_iter().next().unwrap());
                 continue;
             }
         } else if args.keep_most_common_non_unique {
@@ -239,23 +253,23 @@ fn main() -> anyhow::Result<()> {
 
             let alias_ent = check_for_more_popular_alias(&label, entities.last().unwrap().as_str());
             if !args.check_for_popular_aliases || alias_ent.is_none() {
-                label_to_ent.insert(label.clone(), entities.pop().unwrap());
+                label_to_ent.insert((label, None), entities.pop().unwrap());
             }
         }
         // if the label alone is not unique, we add the description to it and try again
         for ent in entities {
-            let desc = &ent_infos.get(ent.as_str()).unwrap().desc;
+            let desc = ent_infos.get(ent.as_str()).unwrap().desc;
             if desc.is_empty() {
                 continue;
             }
             let label_desc = format!("{label} ({desc})");
-            if label_to_ent.contains_key(&label_desc) {
+            if label_to_ent.contains_key(&(label_desc.as_str(), None)) {
                 continue;
             }
             label_desc_to_ents
-                .entry(label_desc)
+                .entry((label, desc))
                 .or_insert_with(Vec::new)
-                .push(ent.to_string());
+                .push(ent.as_str());
         }
     }
     pbar.finish_and_clear();
@@ -268,19 +282,25 @@ fn main() -> anyhow::Result<()> {
         label_desc_to_ents.len() as u64,
         !args.progress,
     );
-    for (label, mut entities) in label_desc_to_ents {
+    for (&(label, desc), mut entities) in label_desc_to_ents.iter() {
         pbar.inc(1);
         if entities.len() <= 1 {
-            label_to_ent.insert(label, Ent::LabelDesc(entities.into_iter().next().unwrap()));
+            label_to_ent.insert(
+                (label, Some(desc)),
+                Ent::LabelDesc(entities.iter().next().unwrap()),
+            );
             continue;
         } else if args.keep_most_common_non_unique {
             // same as above
-            entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
-            label_to_ent.insert(label, Ent::LabelDesc(entities.pop().unwrap()));
+            entities.sort_by_key(|&ent| ent_infos.get(ent).unwrap().count);
+            label_to_ent.insert(
+                (label, Some(desc)),
+                Ent::LabelDesc(entities.last().unwrap()),
+            );
         }
         // if the label and description are not unique
         // record the entities with no entry for statistics
-        ents_left.extend(entities);
+        ents_left.extend(entities.iter().take(entities.len() - 1));
     }
     pbar.finish_and_clear();
     let num_label_desc_unique = label_to_ent.len();
@@ -309,19 +329,18 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .sorted_by_key(|&(_, info)| (info.count))
         .rev()
-        .for_each(|(ent, info)| {
+        .for_each(|(&ent, info)| {
             pbar.inc(1);
             total_aliases += info.aliases.len();
-            for alias in &info.aliases {
-                if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
-                    entry.insert(Ent::Alias(ent.clone()));
+            for alias in info.aliases {
+                if let Entry::Vacant(entry) = label_to_ent.entry((alias, None)) {
+                    entry.insert(Ent::Alias(ent));
                     continue;
                 } else if info.desc.is_empty() {
                     continue;
                 }
-                let alias_desc = format!("{} ({})", alias, info.desc);
-                if let Entry::Vacant(entry) = label_to_ent.entry(alias_desc) {
-                    entry.insert(Ent::AliasDesc(ent.clone()));
+                if let Entry::Vacant(entry) = label_to_ent.entry((alias, Some(info.desc))) {
+                    entry.insert(Ent::AliasDesc(ent));
                 }
             }
         });
