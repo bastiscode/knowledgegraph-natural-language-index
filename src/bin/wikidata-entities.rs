@@ -73,7 +73,6 @@ struct EntityInfo {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let num_lines = line_iter(&args.file)?.count();
     let mut lines = line_iter(&args.file)?;
 
     let header = lines.next().expect("file should have at least 1 line")?;
@@ -84,7 +83,10 @@ fn main() -> anyhow::Result<()> {
 
     let redirects = if let Some(path) = args.redirects {
         let mut redirects = HashMap::new();
+        let num_lines = line_iter(&path)?.count();
+        let pbar = progress_bar("processing redirects", num_lines as u64, !args.progress);
         for line in line_iter(&path)? {
+            pbar.inc(1);
             let line = line?;
             let splits: Vec<_> = line.split_terminator('\t').collect();
             assert_eq!(splits.len(), 2);
@@ -102,6 +104,7 @@ fn main() -> anyhow::Result<()> {
             }
             redirects.insert(ent, redirs);
         }
+        pbar.finish_and_clear();
         redirects
     } else {
         HashMap::new()
@@ -110,6 +113,7 @@ fn main() -> anyhow::Result<()> {
     let mut label_to_ents = HashMap::new();
     let mut aliases_to_ents = HashMap::new();
 
+    let num_lines = line_iter(&args.file)?.count();
     let pbar = progress_bar(
         "processing wikidata entities",
         num_lines as u64,
