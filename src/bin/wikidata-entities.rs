@@ -80,12 +80,18 @@ fn main() -> anyhow::Result<()> {
     let text_pattern = Regex::new("^\"(.*)\"@en$")?;
 
     let redirects = if let Some(path) = args.redirects {
+        let pbar = progress_bar("loading entity redirects", u64::MAX, !args.progress);
+        let lines: Vec<_> = pbar
+            .wrap_iter(line_iter(&args.file)?)
+            .collect::<anyhow::Result<_>>()?;
         let mut redirects = HashMap::new();
-        let num_lines = line_iter(&path)?.count();
-        let pbar = progress_bar("processing redirects", num_lines as u64, !args.progress);
-        for line in line_iter(&path)? {
+        let pbar = progress_bar(
+            "processing entity redirects",
+            lines.len() as u64,
+            !args.progress,
+        );
+        for line in lines {
             pbar.inc(1);
-            let line = line?;
             let splits: Vec<_> = line.split_terminator('\t').collect();
             assert_eq!(splits.len(), 2);
             let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
@@ -111,19 +117,14 @@ fn main() -> anyhow::Result<()> {
     let mut label_to_ents = HashMap::new();
     let mut aliases_to_ents = HashMap::new();
 
-    let num_lines = line_iter(&args.file)?.count();
-    let pbar = progress_bar(
-        "loading wikidata entities",
-        num_lines as u64,
-        !args.progress,
-    );
+    let pbar = progress_bar("loading wikidata entities", u64::MAX, !args.progress);
     let lines: Vec<_> = pbar
         .wrap_iter(line_iter(&args.file)?)
         .collect::<anyhow::Result<_>>()?;
     pbar.finish_and_clear();
     let pbar = progress_bar(
         "processing wikidata entities",
-        num_lines as u64,
+        lines.len() as u64,
         !args.progress,
     );
     for line in &lines {
