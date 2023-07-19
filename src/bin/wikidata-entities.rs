@@ -5,6 +5,7 @@ use std::{
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
 use clap::Parser;
@@ -373,8 +374,9 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(args.output)?)));
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
-    let outputs: Vec<_> = output_dict.into_par_iter().map(|(ent, labels)| {
+    output_dict.into_par_iter().try_for_each(|(ent, labels)| {
         pbar.inc(1);
         let org_label: Vec<_> = labels
             .iter()
@@ -424,7 +426,8 @@ fn main() -> anyhow::Result<()> {
         alias_descs.sort_by_key(|alias| {
             distance(&label, alias, true, false, false, false) as usize
         });
-        format!(
+        writeln!(
+            output.lock().unwrap(),
             "{}\t{}\t{}",
             format_ent(ent),
             if let Some(redirs) = info.redirects {
@@ -439,16 +442,7 @@ fn main() -> anyhow::Result<()> {
                 .chain(alias_descs.iter().map(|s| s.as_str()))
                 .join("\t")
         )
-    }).collect();
-    pbar.finish_and_clear();
-
-    // finally write the output
-    let pbar = progress_bar("writing output", outputs.len() as u64, !args.progress);
-    let mut output = BufWriter::new(fs::File::create(args.output)?);
-    for line in outputs {
-        pbar.inc(1);
-        writeln!(output, "{}", line)?;
-    }
+    })?;
     pbar.finish_and_clear();
 
     Ok(())
