@@ -269,6 +269,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     pbar.finish_and_clear();
+    drop(aliases_to_ents);
     let num_label_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
@@ -316,6 +317,8 @@ fn main() -> anyhow::Result<()> {
         100.0 * num_label_desc_unique as f32 / num_ents as f32
     );
     println!("entities left:            {}", ents_left.len());
+    // free memory after logging
+    drop(ents_left);
 
     // now we have all unique entities
     // go over aliases to make sure one entitiy can be found by multiple names
@@ -406,6 +409,7 @@ fn main() -> anyhow::Result<()> {
                 None
                 })
             .collect::<Vec<_>>();
+        assert_eq!(org_label.len() + desc_label.len() + aliases.len() + alias_descs.len(), labels.len());
         assert!(
             org_label.len() + desc_label.len() <= 1,
             "expected either an original label or a label + descprition, but got {org_label:#?} and {desc_label:#?}"
@@ -433,8 +437,8 @@ fn main() -> anyhow::Result<()> {
             if let Some(redirs) = info.redirects {
                 redirs.iter().map(|r| format_ent(r)).join(";")
             } else {
-                    "".to_string()
-                },
+                "".to_string()
+            },
             org_label
                 .into_iter()
                 .chain(desc_label.iter().map(|s| s.as_str()))
