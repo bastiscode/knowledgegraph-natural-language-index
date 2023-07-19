@@ -113,11 +113,19 @@ fn main() -> anyhow::Result<()> {
 
     let num_lines = line_iter(&args.file)?.count();
     let pbar = progress_bar(
+        "loading wikidata entities",
+        num_lines as u64,
+        !args.progress,
+    );
+    let lines: Vec<_> = pbar
+        .wrap_iter(line_iter(&args.file)?)
+        .collect::<anyhow::Result<_>>()?;
+    pbar.finish_and_clear();
+    let pbar = progress_bar(
         "processing wikidata entities",
         num_lines as u64,
         !args.progress,
     );
-    let lines: Vec<_> = line_iter(&args.file)?.collect::<anyhow::Result<_>>()?;
     for line in &lines {
         pbar.inc(1);
         let splits: Vec<_> = line.split_terminator('\t').collect();
