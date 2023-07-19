@@ -25,7 +25,7 @@ SELECT
 	} GROUP BY ?ent
   } UNION { 
     SELECT ?ent WHERE {
-      ?ent wdt:P279*/^schema:about/schema:isPartOf ?wiki .
+      ?ent ^schema:about/schema:isPartOf ?wiki .
       FILTER(REGEX(STR(?wiki), "^https?://.*.wikipedia.org")) .
 	} GROUP BY ?ent
   }
