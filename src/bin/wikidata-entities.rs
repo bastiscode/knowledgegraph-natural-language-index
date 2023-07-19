@@ -211,7 +211,13 @@ fn main() -> anyhow::Result<()> {
     let mut label_to_ent = HashMap::new();
     assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
     let mut label_desc_to_ents = HashMap::new();
+    let pbar = progress_bar(
+        "adding unique labels",
+        label_to_ents.len() as u64,
+        !args.progress,
+    );
     for (label, mut entities) in label_to_ents {
+        pbar.inc(1);
         assert!(!entities.is_empty());
         if entities.len() <= 1 {
             let alias_ent = check_for_more_popular_alias(&label, entities[0].as_str());
@@ -247,11 +253,18 @@ fn main() -> anyhow::Result<()> {
                 .push(ent.to_string());
         }
     }
+    pbar.finish_and_clear();
     let num_label_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
     let mut ents_left = HashSet::new();
+    let pbar = progress_bar(
+        "adding label-description pairs",
+        label_desc_to_ents.len() as u64,
+        !args.progress,
+    );
     for (label, mut entities) in label_desc_to_ents {
+        pbar.inc(1);
         if entities.len() <= 1 {
             label_to_ent.insert(label, Ent::LabelDesc(entities.into_iter().next().unwrap()));
             continue;
@@ -264,6 +277,7 @@ fn main() -> anyhow::Result<()> {
         // record the entities with entry yet to be preferred when adding aliases
         ents_left.extend(entities);
     }
+    pbar.finish_and_clear();
     let num_label_desc_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
@@ -285,11 +299,13 @@ fn main() -> anyhow::Result<()> {
     // now we have all unique entities
     // go over aliases to make sure one entitiy can be found by multiple names
     let mut total_aliases = 0;
+    let pbar = progress_bar("adding aliases", ent_infos.len() as u64, !args.progress);
     ent_infos
         .iter()
         .sorted_by_key(|&(ent, info)| (ents_left.contains(ent), info.count))
         .rev()
         .for_each(|(ent, info)| {
+            pbar.inc(1);
             total_aliases += info.aliases.len();
             for alias in &info.aliases {
                 if let Entry::Vacant(entry) = label_to_ent.entry(alias.clone()) {
@@ -306,6 +322,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         });
+    pbar.finish_and_clear();
 
     println!(
         "added unique aliases:     {} ({:.2}% of all aliases)",
@@ -346,7 +363,9 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    let pbar = progress_bar("writing output", output_dict.len() as u64, !args.progress);
     for (ent, labels) in output_dict {
+        pbar.inc(1);
         let org_label: Vec<_> = labels
             .iter()
             .filter(|l| matches!(l, Ent::Label(_)))
@@ -398,6 +417,7 @@ fn main() -> anyhow::Result<()> {
                 .join("\t")
         )?;
     }
+    pbar.finish_and_clear();
 
     Ok(())
 }
