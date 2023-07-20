@@ -28,6 +28,8 @@ download_entities:
 	@mkdir -p $(OUT_DIR)
 	@curl -s https://qlever.cs.uni-freiburg.de/api/wikidata -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> PREFIX skos: <http://www.w3.org/2004/02/skos/core#> PREFIX wikibase: <http://wikiba.se/ontology#> PREFIX schema: <http://schema.org/> PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?ent ?ent_name ?ent_description (MAX(?sitelinks) AS ?links) (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = \"; \") AS ?aliases) WHERE { { SELECT DISTINCT ?ent WHERE { ?ent wdt:P279*/wdt:P18 ?pic } } UNION { SELECT DISTINCT ?ent WHERE { ?ent wdt:P31*/wdt:P18 ?pic } } UNION { SELECT DISTINCT ?ent WHERE { ?ent ^schema:about/schema:isPartOf ?wiki . FILTER(REGEX(STR(?wiki), \"^https?://.*.wikipedia.org\")) } } ?ent rdfs:label ?ent_name . FILTER (LANG(?ent_name) = \"en\") . FILTER(REGEX(STR(?ent), \"entity/Q\\\\d+\")) . OPTIONAL { ?ent ^schema:about/wikibase:sitelinks ?sitelinks } OPTIONAL { ?ent schema:description ?ent_description . FILTER (LANG(?ent_description) = \"en\") } OPTIONAL { ?ent skos:altLabel ?alias . FILTER (LANG(?alias) = \"en\") } } GROUP BY ?ent ?ent_name ?ent_description ORDER BY DESC(?links)" \
 	> $(OUT_DIR)/wikidata-entities.tsv
+	@curl -s https://qlever.cs.uni-freiburg.de/api/wikidata -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> PREFIX skos: <http://www.w3.org/2004/02/skos/core#> PREFIX wikibase: <http://wikiba.se/ontology#> PREFIX schema: <http://schema.org/> PREFIX wdt: <http://www.wikidata.org/prop/direct/> SELECT ?ent ?ent_name ?ent_description (MAX(?sitelinks) AS ?links) (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = \"; \") AS ?aliases) WHERE { { SELECT ?ent WHERE { ?ent wdt:P18 ?pic } GROUP BY ?ent } UNION { SELECT ?ent WHERE { ?ent ^schema:about/schema:isPartOf ?wiki . FILTER(REGEX(STR(?wiki), \"^https?://.*.wikipedia.org\")) } GROUP BY ?ent } ?ent rdfs:label ?ent_name . FILTER (LANG(?ent_name) = \"en\") . FILTER(REGEX(STR(?ent), \"entity/Q\\\\d+\")) . OPTIONAL { ?ent ^schema:about/wikibase:sitelinks ?sitelinks } OPTIONAL { ?ent schema:description ?ent_description . FILTER (LANG(?ent_description) = \"en\") } OPTIONAL { ?ent skos:altLabel ?alias . FILTER (LANG(?alias) = \"en\") } } GROUP BY ?ent ?ent_name ?ent_description ORDER BY DESC(?links)" \
+	> $(OUT_DIR)/wikidata-entities-small.tsv
 
 .PHONY: download_redirects
 download_redirects:
@@ -52,6 +54,22 @@ compute_entities:
 		--full-ids \
 		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
 		> $(OUT_DIR)/wikidata-entities-popular-output.txt
+	@$(CARGO) run --bin wikidata-entities --release -- \
+		--file $(OUT_DIR)/wikidata-entities-small.tsv \
+		--output $(OUT_DIR)/wikidata-entities-small-index.tsv \
+		--keep-most-common-non-unique \
+		--full-ids \
+		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
+		> $(OUT_DIR)/wikidata-entities-small-output.txt
+	@$(CARGO) run --bin wikidata-entities --release -- \
+		--file $(OUT_DIR)/wikidata-entities-small.tsv \
+		--output $(OUT_DIR)/wikidata-entities-small-popular-index.tsv \
+		--keep-most-common-non-unique \
+		--check-for-popular-aliases \
+		--full-ids \
+		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
+		> $(OUT_DIR)/wikidata-entities-small-popular-output.txt
+
 
 .PHONY: download
 download: download_properties download_redirects download_entities
