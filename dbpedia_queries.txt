@@ -1,0 +1,59 @@
+# All entities in DBPedia with name, description, number of links, and aliases
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dbo: <http://dbpedia.org/ontology/>
+PREFIX dbr: <http://dbpedia.org/resource/>
+SELECT 
+  ?ent 
+  ?ent_name 
+  ?ent_description
+  ?ent_count
+  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+WHERE 
+{
+  { SELECT ?ent (COUNT(?ent) AS ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
+  ?ent rdfs:label ?ent_name .
+  FILTER (LANG(?ent_name) = "en") .
+  BIND("" AS ?ent_description)
+  OPTIONAL {
+    ?ent dbo:alias ?alias .
+    FILTER (LANG(?alias) = "en") .
+  }
+}
+GROUP BY ?ent ?ent_name ?ent_description ?ent_count
+ORDER BY DESC(?ent_count)
+
+# All entity redirects
+
+PREFIX dbo: <http://dbpedia.org/ontology/>
+PREFIX dbr: <http://dbpedia.org/resource/>
+SELECT ?target (GROUP_CONCAT(DISTINCT ?source; SEPARATOR = "\t") as ?sources) 
+WHERE {
+  ?source dbo:wikiPageRedirects ?target .
+}
+GROUP BY ?target
+
+# All properties in DBPedia with name, count, aliases, and inverse properties
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dbo: <http://dbpedia.org/ontology/>
+SELECT 
+  ?p 
+  ?p_label
+  ?p_count
+  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+  (GROUP_CONCAT(DISTINCT ?inv_p; SEPARATOR = "; ") AS ?inverse)
+WHERE {
+  { SELECT ?p (COUNT(?p) as ?p_count) WHERE { ?s ?p ?o } GROUP BY ?p }
+  ?p rdfs:label ?p_label .
+  FILTER(LANG(?p_label) = "en") .
+  OPTIONAL {
+    ?p dbo:alias ?alias .
+    FILTER (LANG(?alias) = "en") .
+  }
+  OPTIONAL {
+    ?inv_p dbo:inverseOf ?p .
+  }
+}
+GROUP BY ?p ?p_label ?p_count
+ORDER BY DESC(?p_count) 

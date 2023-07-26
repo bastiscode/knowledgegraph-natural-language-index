@@ -1,0 +1,49 @@
+# All entities in Freebase with name, description, number of links, and aliases
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX fb: <http://rdf.freebase.com/ns/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+SELECT 
+  ?ent 
+  ?ent_name 
+  ?ent_description
+  ?ent_count
+  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+WHERE 
+{
+  { SELECT ?ent (COUNT(?ent) as ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
+  ?ent rdfs:label ?ent_name .
+  FILTER (LANG(?ent_name) = "en") .
+  FILTER (REGEX(str(?ent), "^http://rdf.freebase.com/ns/m\..*$"))
+  BIND("" AS ?ent_description)
+  OPTIONAL {
+    ?ent fb:common.topic.alias ?alias .
+    FILTER (LANG(?alias) = "en") .
+  }
+}
+GROUP BY ?ent ?ent_name ?ent_description ?ent_count
+ORDER BY DESC(?ent_count)
+
+# All properties in Freebase with name, count, aliases, and inverse properties
+
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dbo: <http://dbpedia.org/ontology/>
+SELECT 
+  ?p 
+  ?p_label
+  ?p_count
+  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+  ?inv_p 
+WHERE 
+{
+  { SELECT ?p (COUNT(?p) as ?p_count) WHERE { ?s ?p ?o } GROUP BY ?p }
+  ?p rdfs:label ?p_label .
+  FILTER(LANG(?p_label) = "en") .
+  OPTIONAL {
+    ?p dbo:alias ?alias .
+    FILTER (LANG(?alias) = "en") .
+  }
+  BIND("" AS ?inv_p)
+}
+GROUP BY ?p ?p_label ?p_count ?inv_p
+ORDER BY DESC(?p_count)

@@ -1,7 +1,6 @@
 use rayon::prelude::*;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
-    fmt::Display,
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
@@ -11,7 +10,7 @@ use std::{
 use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
-use sparql_data_preparation::{line_iter, progress_bar};
+use sparql_data_preparation::{line_iter, progress_bar, Ent, KnowledgeGraph};
 use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
@@ -35,42 +34,12 @@ struct Args {
     check_for_popular_aliases: bool,
 
     #[clap(short, long)]
-    full_ids: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Ent<'a> {
-    Label(&'a str),
-    LabelDesc(&'a str),
-    Alias(&'a str),
-    AliasDesc(&'a str),
-}
-
-impl Ent<'_> {
-    fn as_str(&self) -> &str {
-        match self {
-            Ent::Label(s) | Ent::LabelDesc(s) => s,
-            Ent::Alias(s) | Ent::AliasDesc(s) => s,
-        }
-    }
-}
-
-impl Display for Ent<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-struct EntityInfo<'a> {
-    label: &'a str,
-    desc: &'a str,
-    aliases: Vec<&'a str>,
-    count: usize,
-    redirects: Option<&'a Vec<String>>,
+    knowledge_base: String,
 }
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    let kg = KnowledgeGraph::try_from(args.knowledge_base.as_str())?;
 
     let mut lines = line_iter(&args.file)?;
 
@@ -78,7 +47,6 @@ fn main() -> anyhow::Result<()> {
     assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 5);
 
     let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
-    let text_pattern = Regex::new("^\"(.*)\"@en$")?;
 
     let redirects = if let Some(path) = args.redirects {
         let pbar = progress_bar("loading entity redirects", u64::MAX, !args.progress);
@@ -94,15 +62,23 @@ fn main() -> anyhow::Result<()> {
         for line in lines {
             pbar.inc(1);
             let splits: Vec<_> = line.split_terminator('\t').collect();
-            assert_eq!(splits.len(), 2);
+            assert!(splits.len() >= 2);
             let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
                 ent.get(1).unwrap().as_str().to_string()
             } else {
                 continue;
             };
-            let redirs: Vec<_> = ent_pattern
-                .captures_iter(splits[1].trim())
-                .map(|m| m.get(1).unwrap().as_str().to_string())
+            let redirs: Vec<_> = splits[1..]
+                .iter()
+                .map(|s| {
+                    ent_pattern
+                        .captures(s.trim())
+                        .unwrap()
+                        .get(1)
+                        .unwrap()
+                        .as_str()
+                        .to_string()
+                })
                 .collect();
             if redirs.is_empty() {
                 continue;
@@ -130,64 +106,24 @@ fn main() -> anyhow::Result<()> {
     );
     for line in &lines {
         pbar.inc(1);
-        let splits: Vec<_> = line.split_terminator('\t').collect();
-        assert!(splits.len() <= 5);
-
-        let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
-            ent.get(1).unwrap().as_str()
-        } else {
-            continue;
-        };
-
-        let label = if let Some(ent_label) = text_pattern.captures(splits[1]) {
-            ent_label.get(1).unwrap().as_str().trim()
-        } else {
-            continue;
-        };
-        if label.is_empty() {
-            continue;
-        }
-
-        let desc = if let Some(ent_desc) = text_pattern.captures(splits[2]) {
-            ent_desc.get(1).unwrap().as_str().trim()
-        } else {
-            ""
-        };
-        let count = splits[3].parse::<usize>()?;
-
-        let aliases: Vec<_> = if splits.len() > 4 {
-            splits[4]
-                .split_terminator(';')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .sorted()
-                .collect()
-        } else {
-            vec![]
-        };
+        let (ent, mut info) = kg.parse_entity(line)?;
 
         label_to_ents
-            .entry(label)
+            .entry(info.label)
             .or_insert_with(Vec::new)
-            .push(Ent::Label(ent));
+            .push(ent.clone());
 
         if args.check_for_popular_aliases {
-            for &alias in &aliases {
+            for &alias in &info.aliases {
                 aliases_to_ents
                     .entry(alias)
                     .or_insert_with(Vec::new)
-                    .push(ent);
+                    .push(ent.as_str());
             }
         }
 
-        let info = EntityInfo {
-            label,
-            desc,
-            aliases,
-            count,
-            redirects: redirects.get(ent),
-        };
-        let existing = ent_infos.insert(ent, info);
+        info.redirects = redirects.get(ent.as_str());
+        let existing = ent_infos.insert(ent.as_str(), info);
         assert!(existing.is_none(), "entities should be unique");
     }
     pbar.finish_and_clear();
@@ -369,14 +305,6 @@ fn main() -> anyhow::Result<()> {
             .push((label, matches!(ent, Ent::Alias(_) | Ent::AliasDesc(_))));
     }
 
-    let format_ent = |ent: &str| {
-        if args.full_ids {
-            format!("wd:{}", ent)
-        } else {
-            ent.chars().skip(1).collect::<String>()
-        }
-    };
-
     let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(args.output)?)));
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
     output_dict.into_par_iter().try_for_each(|(ent, labels)| {
@@ -433,9 +361,9 @@ fn main() -> anyhow::Result<()> {
         writeln!(
             output.lock().unwrap(),
             "{}\t{}\t{}",
-            format_ent(ent),
+            kg.format_entity(ent),
             if let Some(redirs) = info.redirects {
-                redirs.iter().map(|r| format_ent(r)).join(";")
+                redirs.iter().map(|r| kg.format_entity(r)).join(";")
             } else {
                 "".to_string()
             },

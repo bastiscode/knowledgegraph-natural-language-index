@@ -1,8 +1,247 @@
+use std::cmp::Ordering;
+use std::fmt::Display;
 use std::io::BufRead;
 use std::path::Path;
 use std::{fs, io::BufReader};
 
+use anyhow::{anyhow, bail};
+
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use regex::Regex;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
+pub enum Ent<'a> {
+    Label(&'a str),
+    LabelDesc(&'a str),
+    Alias(&'a str),
+    AliasDesc(&'a str),
+}
+
+impl<'s> Ent<'s> {
+    pub fn as_str(&self) -> &'s str {
+        match self {
+            Ent::Label(s) | Ent::LabelDesc(s) => s,
+            Ent::Alias(s) | Ent::AliasDesc(s) => s,
+        }
+    }
+}
+
+impl PartialOrd for Ent<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(match (self, other) {
+            (Ent::Label(_), Ent::LabelDesc(_) | Ent::Alias(_) | Ent::AliasDesc(_)) => {
+                Ordering::Less
+            }
+            (Ent::LabelDesc(_), Ent::Alias(_) | Ent::AliasDesc(_)) => Ordering::Less,
+            (Ent::Alias(_), Ent::AliasDesc(_)) => Ordering::Less,
+            (Ent::AliasDesc(_), Ent::Label(_) | Ent::LabelDesc(_) | Ent::Alias(_)) => {
+                Ordering::Greater
+            }
+            (Ent::Alias(_), Ent::Label(_) | Ent::LabelDesc(_)) => Ordering::Greater,
+            (Ent::LabelDesc(_), Ent::Label(_)) => Ordering::Greater,
+            _ => Ordering::Equal,
+        })
+    }
+}
+
+impl Display for Ent<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+pub struct EntityInfo<'a> {
+    pub label: &'a str,
+    pub desc: &'a str,
+    pub aliases: Vec<&'a str>,
+    pub count: usize,
+    pub redirects: Option<&'a Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
+pub enum Prop<'a> {
+    Label(&'a str),
+    Alias(&'a str),
+}
+
+impl PartialOrd for Prop<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(match (self, other) {
+            (Prop::Label(_), Prop::Alias(_)) => Ordering::Less,
+            (Prop::Alias(_), Prop::Label(_)) => Ordering::Greater,
+            _ => Ordering::Equal,
+        })
+    }
+}
+
+impl<'s> Prop<'s> {
+    pub fn as_str(&self) -> &'s str {
+        match self {
+            Prop::Label(s) => s,
+            Prop::Alias(s) => s,
+        }
+    }
+}
+
+impl Display for Prop<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+pub struct PropInfo<'a> {
+    pub label: String,
+    pub aliases: Vec<&'a str>,
+    pub inverses: Vec<&'a str>,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum KnowledgeGraph {
+    Wikidata,
+    Freebase,
+    DBPedia,
+}
+
+impl TryFrom<&str> for KnowledgeGraph {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "wikidata" => KnowledgeGraph::Wikidata,
+            "freebase" => KnowledgeGraph::Freebase,
+            "dbpedia" => KnowledgeGraph::DBPedia,
+            _ => return Err(anyhow!("invalid knowledge base {}", value)),
+        })
+    }
+}
+
+impl KnowledgeGraph {
+    pub fn parse_property<'s>(&self, line: &'s str) -> anyhow::Result<(Prop<'s>, PropInfo<'s>)> {
+        let splits: Vec<_> = line.split_terminator('\t').collect();
+        if splits.len() < 2 || splits.len() > 5 {
+            bail!("invalid property line: {}", line);
+        }
+        let prop_pattern = Regex::new(match self {
+            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(P\d+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/([^>]+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/((?:property|ontology)/[^>]+)>?",
+        })?;
+        let Some(prop) = prop_pattern.captures(splits[0]) else {
+            bail!("failed to capture property in {}", splits[0]);
+        };
+        let prop = prop.get(1).unwrap().as_str().trim();
+        let label_pattern = Regex::new("^\"(.*)\"@en$")?;
+        let Some(label) = label_pattern.captures(splits[1]) else {
+            bail!("failed to capture label in {}", splits[1]);
+        };
+        let label = label.get(1).unwrap().as_str().trim();
+
+        let label = match self {
+            KnowledgeGraph::Wikidata => label.to_string(),
+            KnowledgeGraph::DBPedia => {
+                if prop.starts_with("ontology") {
+                    format!("{label} (ontology)")
+                } else {
+                    label.to_string()
+                }
+            }
+            KnowledgeGraph::Freebase => {
+                let splits: Vec<_> = prop.split_terminator('.').collect();
+                if splits.len() < 2 {
+                    bail!("invalid freebase property: {}", prop);
+                }
+                format!("{label} ({})", splits[splits.len() - 2].replace('_', " "))
+            }
+        };
+        let aliases = splits[3].split_terminator(';').map(str::trim).collect();
+        let inverses = if splits.len() == 5 {
+            splits[4]
+                .split_terminator(';')
+                .filter_map(|s| prop_pattern.captures(s.trim())?.get(1).map(|m| m.as_str()))
+                .collect()
+        } else {
+            vec![]
+        };
+        Ok((
+            Prop::Label(prop),
+            PropInfo {
+                label,
+                count: splits[2].parse()?,
+                aliases,
+                inverses,
+            },
+        ))
+    }
+
+    pub fn parse_entity<'s>(&self, line: &'s str) -> anyhow::Result<(Ent<'s>, EntityInfo<'s>)> {
+        let splits: Vec<_> = line.split_terminator('\t').collect();
+        if splits.len() < 2 || splits.len() > 5 {
+            bail!("invalid entity line: {}", line);
+        }
+        let ent_pattern = Regex::new(match self {
+            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(Q\d+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(m\.[^>]+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/resource/[^>]+)>?",
+        })?;
+        let Some(ent) = ent_pattern.captures(splits[0]) else {
+            bail!("failed to capture entity in {}", splits[0]);
+        };
+        let ent = ent.get(1).unwrap().as_str().trim();
+        let text_pattern = Regex::new("^\"(.*)\"@en$")?;
+        let Some(label) = text_pattern.captures(splits[1]) else {
+            bail!("failed to capture label in {}", splits[1]);
+        };
+        let label = label.get(1).unwrap().as_str().trim();
+        let desc = if let Some(desc) = text_pattern.captures(splits[2]) {
+            desc.get(1).unwrap().as_str().trim()
+        } else {
+            ""
+        };
+        let aliases = splits[4].split_terminator(';').map(str::trim).collect();
+        Ok((
+            Ent::Label(ent),
+            EntityInfo {
+                label,
+                desc,
+                count: splits[3].parse()?,
+                aliases,
+                redirects: None,
+            },
+        ))
+    }
+
+    pub fn format_property(&self, p: &str, pfx: Option<&str>) -> String {
+        match self {
+            KnowledgeGraph::Wikidata => format!("{}:{p}", pfx.unwrap_or("wdt")),
+            KnowledgeGraph::Freebase => format!("{}:{p}", pfx.unwrap_or("fb")),
+            KnowledgeGraph::DBPedia => {
+                let dbp_regex = Regex::new(r"(property|ontology)/([^>]+)").unwrap();
+                let captures = dbp_regex.captures(p).unwrap();
+                let p_type = captures.get(1).unwrap().as_str();
+                let p = captures.get(2).unwrap().as_str();
+                let pfx = if p_type == "ontology" { "dbo" } else { "dbp" };
+                format!("{pfx}:{p}")
+            }
+        }
+    }
+
+    pub fn format_entity(&self, e: &str) -> String {
+        match self {
+            KnowledgeGraph::Wikidata => format!("wd:{}", e),
+            KnowledgeGraph::Freebase => format!("fb:{}", e),
+            KnowledgeGraph::DBPedia => format!("dbr:{}", e),
+        }
+    }
+}
+
+pub fn wikidata_qualifiers(label: &str) -> Vec<(String, String)> {
+    vec![
+        (format!("{label} (statement)"), "p".to_string()),
+        (format!("{label} (qualifier)"), "pq".to_string()),
+        (format!("{label} (value)"), "ps".to_string()),
+    ]
+}
 
 pub fn line_iter(
     file: impl AsRef<Path>,

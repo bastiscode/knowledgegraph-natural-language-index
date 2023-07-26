@@ -11,7 +11,7 @@ SELECT
   ?ent 
   ?ent_name 
   ?ent_description
-  (MAX(?sitelinks) AS ?links)
+  ?links
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
   WHERE 
 {
@@ -33,7 +33,7 @@ SELECT
   FILTER (LANG(?ent_name) = "en") .
   FILTER(REGEX(STR(?ent), "entity/Q\\d+")) .
   OPTIONAL {
-    ?ent ^schema:about/wikibase:sitelinks ?sitelinks . 
+    ?ent ^schema:about/wikibase:sitelinks ?links . 
   }
   OPTIONAL {
     ?ent schema:description ?ent_description .
@@ -44,7 +44,7 @@ SELECT
     FILTER (LANG(?alias) = "en") .
   }
 }
-GROUP BY ?ent ?ent_name ?ent_description
+GROUP BY ?ent ?ent_name ?ent_description ?links
 ORDER BY DESC(?links)
 
 # All entity redirects
@@ -53,36 +53,39 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 SELECT 
   ?ent 
-  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
+  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "\t") AS ?redirs)
 WHERE {
   ?redir owl:sameAs ?ent .
   FILTER(REGEX(STR(?ent), "entity/Q\\d+"))
 }
 GROUP BY ?ent
 
-# All direct properties in Wikidata with name, aliases, and inverse properties
+# All direct properties in Wikidata with name, count, aliases, and inverse properties
 
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX wdt: <http://www.wikidata.org/prop/direct/>
 PREFIX wd: <http://www.wikidata.org/entity/>
 PREFIX wikibase: <http://wikiba.se/ontology#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 SELECT 
   ?p 
-  ?prop_label 
-  (GROUP_CONCAT(DISTINCT ?prop_alias; SEPARATOR = "; ") AS ?prop_aliases) 
-  (GROUP_CONCAT(DISTINCT ?inv_prop; SEPARATOR = "; ") AS ?inv_props)
+  ?p_label
+  ?p_count
+  (GROUP_CONCAT(DISTINCT ?p_alias; SEPARATOR = "; ") AS ?p_aliases) 
+  (GROUP_CONCAT(DISTINCT ?p_inv; SEPARATOR = "; ") AS ?p_invs)
   WHERE
 {
-  ?prop wikibase:directClaim ?p .
-  ?prop rdfs:label ?prop_label . 
-  FILTER(LANG(?prop_label) = "en") .
+  ?p wikibase:directClaim ?claim .
+  ?p rdfs:label ?p_label .
+  FILTER(LANG(?p_label) = "en") .
+  BIND(0 AS ?p_count) .
   OPTIONAL {
-    ?prop skos:altLabel ?prop_alias .
-    FILTER(LANG(?prop_alias) = "en") .
+    ?p skos:altLabel ?p_alias .
+    FILTER(LANG(?p_alias) = "en") .
   }
   OPTIONAL {
-    ?prop wdt:P1696 ?inv_prop .
+    ?p wdt:P1696 ?p_inv .
   }
 }
-GROUP BY ?p ?prop_label
+GROUP BY ?p ?p_label ?p_count
