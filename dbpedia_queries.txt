@@ -13,7 +13,8 @@ WHERE
 {
   { SELECT ?ent (COUNT(?ent) AS ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
   ?ent rdfs:label ?ent_name .
-  FILTER (LANG(?ent_name) = "en") .
+  FILTER(LANG(?ent_name) = "en") .
+  FILTER(REGEX(str(?ent), "^http://dbpedia.org/resource/")) .
   BIND("" AS ?ent_description)
   OPTIONAL {
     ?ent dbo:alias ?alias .
