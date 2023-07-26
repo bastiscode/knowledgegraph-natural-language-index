@@ -8,7 +8,8 @@ use std::{
 use clap::Parser;
 use itertools::Itertools;
 use sparql_data_preparation::{
-    line_iter, progress_bar, wikidata_qualifiers, KnowledgeGraph, Prop, PropInfo,
+    line_iter, progress_bar, wikidata_qualifiers, KnowledgeGraph, KnowledgeGraphProcessor, Prop,
+    PropInfo,
 };
 use text_correction_utils::edit::distance;
 
@@ -39,6 +40,7 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let kg = KnowledgeGraph::try_from(args.knowledge_base.as_str())?;
+    let kg = KnowledgeGraphProcessor::new(kg)?;
 
     let num_lines = line_iter(&args.file)?.count();
     let mut lines = line_iter(&args.file)?;

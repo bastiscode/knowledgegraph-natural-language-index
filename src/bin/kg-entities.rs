@@ -10,7 +10,9 @@ use std::{
 use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
-use sparql_data_preparation::{line_iter, progress_bar, Ent, KnowledgeGraph};
+use sparql_data_preparation::{
+    line_iter, progress_bar, Ent, KnowledgeGraph, KnowledgeGraphProcessor,
+};
 use text_correction_utils::edit::distance;
 
 #[derive(Parser, Debug)]
@@ -40,15 +42,10 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let kg = KnowledgeGraph::try_from(args.knowledge_base.as_str())?;
-
-    let mut lines = line_iter(&args.file)?;
-
-    let header = lines.next().expect("file should have at least 1 line")?;
-    assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 5);
-
-    let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
+    let kg = KnowledgeGraphProcessor::new(kg)?;
 
     let redirects = if let Some(path) = args.redirects {
+        let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
         let pbar = progress_bar("loading entity redirects", u64::MAX, !args.progress);
         let lines: Vec<_> = pbar
             .wrap_iter(line_iter(path)?)
@@ -95,9 +92,10 @@ fn main() -> anyhow::Result<()> {
     let mut aliases_to_ents = HashMap::new();
 
     let pbar = progress_bar("loading wikidata entities", u64::MAX, !args.progress);
-    let lines: Vec<_> = pbar
-        .wrap_iter(line_iter(&args.file)?)
-        .collect::<anyhow::Result<_>>()?;
+    let mut lines = pbar.wrap_iter(line_iter(&args.file)?);
+    let header = lines.next().expect("file should have at least 1 line")?;
+    let lines: Vec<_> = lines.collect::<anyhow::Result<_>>()?;
+    assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 5);
     pbar.finish_and_clear();
     let pbar = progress_bar(
         "processing wikidata entities",

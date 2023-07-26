@@ -116,28 +116,51 @@ impl TryFrom<&str> for KnowledgeGraph {
     }
 }
 
-impl KnowledgeGraph {
+pub struct KnowledgeGraphProcessor {
+    label_pattern: Regex,
+    prop_pattern: Regex,
+    ent_pattern: Regex,
+    kg: KnowledgeGraph,
+}
+
+impl KnowledgeGraphProcessor {
+    pub fn new(kg: KnowledgeGraph) -> anyhow::Result<Self> {
+        let prop_pattern = Regex::new(match kg {
+            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(P\d+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/([^>]+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/((?:property|ontology)/[^>]+)>?",
+        })?;
+        let label_pattern = Regex::new("^\"(.*)\"@en$")?;
+        let ent_pattern = Regex::new(match kg {
+            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(Q\d+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(m\.[^>]+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/resource/[^>]+)>?",
+        })?;
+
+        Ok(Self {
+            label_pattern,
+            prop_pattern,
+            ent_pattern,
+            kg,
+        })
+    }
+
+    #[inline]
     pub fn parse_property<'s>(&self, line: &'s str) -> anyhow::Result<(Prop<'s>, PropInfo<'s>)> {
         let splits: Vec<_> = line.split_terminator('\t').collect();
         if splits.len() < 2 || splits.len() > 5 {
             bail!("invalid property line: {}", line);
         }
-        let prop_pattern = Regex::new(match self {
-            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(P\d+)>?",
-            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/([^>]+)>?",
-            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/((?:property|ontology)/[^>]+)>?",
-        })?;
-        let Some(prop) = prop_pattern.captures(splits[0]) else {
+        let Some(prop) = self.prop_pattern.captures(splits[0]) else {
             bail!("failed to capture property in {}", splits[0]);
         };
         let prop = prop.get(1).unwrap().as_str().trim();
-        let label_pattern = Regex::new("^\"(.*)\"@en$")?;
-        let Some(label) = label_pattern.captures(splits[1]) else {
+        let Some(label) = self.label_pattern.captures(splits[1]) else {
             bail!("failed to capture label in {}", splits[1]);
         };
         let label = label.get(1).unwrap().as_str().trim();
 
-        let label = match self {
+        let label = match self.kg {
             KnowledgeGraph::Wikidata => label.to_string(),
             KnowledgeGraph::DBPedia => {
                 if prop.starts_with("ontology") {
@@ -158,7 +181,12 @@ impl KnowledgeGraph {
         let inverses = if splits.len() == 5 {
             splits[4]
                 .split_terminator(';')
-                .filter_map(|s| prop_pattern.captures(s.trim())?.get(1).map(|m| m.as_str()))
+                .filter_map(|s| {
+                    self.prop_pattern
+                        .captures(s.trim())?
+                        .get(1)
+                        .map(|m| m.as_str())
+                })
                 .collect()
         } else {
             vec![]
@@ -174,31 +202,30 @@ impl KnowledgeGraph {
         ))
     }
 
+    #[inline]
     pub fn parse_entity<'s>(&self, line: &'s str) -> anyhow::Result<(Ent<'s>, EntityInfo<'s>)> {
         let splits: Vec<_> = line.split_terminator('\t').collect();
         if splits.len() < 2 || splits.len() > 5 {
             bail!("invalid entity line: {}", line);
         }
-        let ent_pattern = Regex::new(match self {
-            KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(Q\d+)>?",
-            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(m\.[^>]+)>?",
-            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/resource/[^>]+)>?",
-        })?;
-        let Some(ent) = ent_pattern.captures(splits[0]) else {
+        let Some(ent) = self.ent_pattern.captures(splits[0]) else {
             bail!("failed to capture entity in {}", splits[0]);
         };
         let ent = ent.get(1).unwrap().as_str().trim();
-        let text_pattern = Regex::new("^\"(.*)\"@en$")?;
-        let Some(label) = text_pattern.captures(splits[1]) else {
+        let Some(label) = self.label_pattern.captures(splits[1]) else {
             bail!("failed to capture label in {}", splits[1]);
         };
         let label = label.get(1).unwrap().as_str().trim();
-        let desc = if let Some(desc) = text_pattern.captures(splits[2]) {
+        let desc = if let Some(desc) = self.label_pattern.captures(splits[2]) {
             desc.get(1).unwrap().as_str().trim()
         } else {
             ""
         };
-        let aliases = splits[4].split_terminator(';').map(str::trim).collect();
+        let aliases = if splits.len() == 5 {
+            splits[4].split_terminator(';').map(str::trim).collect()
+        } else {
+            vec![]
+        };
         Ok((
             Ent::Label(ent),
             EntityInfo {
@@ -211,8 +238,9 @@ impl KnowledgeGraph {
         ))
     }
 
+    #[inline]
     pub fn format_property(&self, p: &str, pfx: Option<&str>) -> String {
-        match self {
+        match self.kg {
             KnowledgeGraph::Wikidata => format!("{}:{p}", pfx.unwrap_or("wdt")),
             KnowledgeGraph::Freebase => format!("{}:{p}", pfx.unwrap_or("fb")),
             KnowledgeGraph::DBPedia => {
@@ -226,8 +254,9 @@ impl KnowledgeGraph {
         }
     }
 
+    #[inline]
     pub fn format_entity(&self, e: &str) -> String {
-        match self {
+        match self.kg {
             KnowledgeGraph::Wikidata => format!("wd:{}", e),
             KnowledgeGraph::Freebase => format!("fb:{}", e),
             KnowledgeGraph::DBPedia => format!("dbr:{}", e),
