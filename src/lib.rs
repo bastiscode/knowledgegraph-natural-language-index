@@ -268,7 +268,9 @@ pub fn wikidata_qualifiers(label: &str) -> Vec<(String, String)> {
     vec![
         (format!("{label} (statement)"), "p".to_string()),
         (format!("{label} (qualifier)"), "pq".to_string()),
+        (format!("{label} (normalized qualifier)"), "pqn".to_string()),
         (format!("{label} (value)"), "ps".to_string()),
+        (format!("{label} (normalized value)"), "psn".to_string()),
     ]
 }
 
