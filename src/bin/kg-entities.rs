@@ -237,7 +237,7 @@ fn main() -> anyhow::Result<()> {
     let num_label_desc_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
-    println!("Wikidata entities");
+    println!("{} entities", args.knowledge_base);
     println!("#################");
     println!("entities:                 {}", num_ents);
     println!("unique by label:          {}", num_label_unique);

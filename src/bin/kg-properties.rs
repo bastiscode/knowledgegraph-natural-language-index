@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    println!("Wikidata properties");
+    println!("{} properties", args.knowledge_base);
     println!("###################");
     println!("lines:           {}", num_lines.saturating_sub(1));
     println!("unique by label: {num_label_unique}");
