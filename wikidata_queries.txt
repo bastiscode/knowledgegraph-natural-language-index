@@ -12,6 +12,7 @@ SELECT
   ?ent_name 
   ?ent_description
   ?links
+  (GROUP_CONCAT(DISTINCT ?type; SEPARATOR = "; ") AS ?types)
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
   WHERE 
 {
@@ -34,6 +35,13 @@ SELECT
   FILTER(REGEX(STR(?ent), "entity/Q\\d+")) .
   OPTIONAL {
     ?ent ^schema:about/wikibase:sitelinks ?links . 
+  }
+  OPTIONAL {
+    {
+      ?ent wdt:P31 ?type .
+	} UNION {
+	  ?ent wdt:P279 ?type .
+	}
   }
   OPTIONAL {
     ?ent schema:description ?ent_description .

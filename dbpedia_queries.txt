@@ -8,6 +8,7 @@ SELECT
   ?ent_name 
   ?ent_description
   ?ent_count
+  (GROUP_CONCAT(DISTINCT ?type; SEPARATOR = "; ") AS ?types)
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
 WHERE 
 {
