@@ -14,13 +14,14 @@ WHERE
 {
   { SELECT ?ent (COUNT(?ent) as ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
   ?ent rdfs:label ?ent_name .
-  FILTER (LANG(?ent_name) = "en") .
-  FILTER (REGEX(str(?ent), "^http://rdf.freebase.com/ns/m\..*$"))
+  FILTER(LANG(?ent_name) = "en") .
+  FILTER(REGEX(STR(?ent), "^http://rdf.freebase.com/ns/m\..*$"))
   BIND("" AS ?ent_description)
   OPTIONAL {
     ?ent fb:common.topic.alias ?alias .
     FILTER (LANG(?alias) = "en") .
   }
+  BIND("" AS ?type)
 }
 GROUP BY ?ent ?ent_name ?ent_description ?ent_count
 ORDER BY DESC(?ent_count)

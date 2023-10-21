@@ -1,5 +1,6 @@
 # All entities in DBPedia with name, description, number of links, and aliases
 
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX dbo: <http://dbpedia.org/ontology/>
 PREFIX dbr: <http://dbpedia.org/resource/>
@@ -15,11 +16,19 @@ WHERE
   { SELECT ?ent (COUNT(?ent) AS ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
   ?ent rdfs:label ?ent_name .
   FILTER(LANG(?ent_name) = "en") .
-  FILTER(REGEX(str(?ent), "^http://dbpedia.org/resource/")) .
+  FILTER(REGEX(STR(?ent), "^http://dbpedia.org/resource/")) .
   BIND("" AS ?ent_description)
   OPTIONAL {
     ?ent dbo:alias ?alias .
     FILTER (LANG(?alias) = "en") .
+  }
+  OPTIONAL {
+    {
+      ?ent rdfs:subClassOf ?type .
+    } UNION {
+	  ?ent rdf:type ?type .
+    }
+	FILTER(REGEX(STR(?type), "^http://dbpedia.org/ontology/")) .
   }
 }
 GROUP BY ?ent ?ent_name ?ent_description ?ent_count
