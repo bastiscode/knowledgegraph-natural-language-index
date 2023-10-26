@@ -62,12 +62,12 @@ pub struct EntityInfo<'a> {
 
 impl<'a> EntityInfo<'a> {
     pub fn info(&self) -> &str {
-        let types = self.types.lock().unwrap();
-        if types.is_empty() {
-            self.desc
-        } else {
-            types[0]
-        }
+        self.types
+            .lock()
+            .unwrap()
+            .last()
+            .copied()
+            .unwrap_or(self.desc)
     }
 }
 

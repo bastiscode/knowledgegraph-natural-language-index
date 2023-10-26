@@ -129,9 +129,7 @@ fn main() -> anyhow::Result<()> {
 
     ent_infos.values().for_each(|info| {
         let mut types = info.types.lock().unwrap();
-        types.sort_by_key(|&type_id| {
-            Reverse(ent_infos.get(type_id).map(|info| info.count).unwrap_or(0))
-        });
+        types.sort_by_key(|&type_id| ent_infos.get(type_id).map(|info| info.count).unwrap_or(0));
         *types = types
             .iter()
             .filter_map(|type_id| ent_infos.get(type_id).map(|info| info.label))
@@ -176,32 +174,21 @@ fn main() -> anyhow::Result<()> {
         label_to_ents.len() as u64,
         !args.progress,
     );
-    for (label, mut entities) in label_to_ents {
+    for (label, entities) in label_to_ents {
         pbar.inc(1);
         assert!(!entities.is_empty());
         if entities.len() <= 1 {
             let alias_ent = check_for_more_popular_alias(label, entities[0].as_str());
             if !args.check_for_popular_aliases || alias_ent.is_none() {
                 let ent = entities.into_iter().next().unwrap();
-                label_to_ent.insert((label, None), ent);
+                assert!(label_to_ent.insert((label, None), ent).is_none());
                 continue;
-            }
-        } else if args.keep_most_common_non_unique {
-            // if we have multiple entities with the same label, we keep the most common one
-            // as the one being identified by just the label
-            entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
-            // keep the most popular one only if its label is not an alias
-            // of a more popular entity
-
-            let alias_ent = check_for_more_popular_alias(label, entities.last().unwrap().as_str());
-            if !args.check_for_popular_aliases || alias_ent.is_none() {
-                let ent = entities.pop().unwrap();
-                label_to_ent.insert((label, None), ent);
             }
         }
         // if the label alone is not unique, we add the type or description to it and try again
         for ent in entities {
-            let info = ent_infos.get(ent.as_str()).unwrap().info();
+            let ent_info = ent_infos.get(ent.as_str()).unwrap();
+            let info = ent_info.info();
             if info.is_empty() {
                 continue;
             }
@@ -210,13 +197,12 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
             label_info_to_ents
-                .entry((label, info.to_string()))
+                .entry((label, info))
                 .or_insert_with(Vec::new)
-                .push(ent);
+                .push((ent_info.count, ent));
         }
     }
     pbar.finish_and_clear();
-    drop(aliases_to_ents);
     let num_label_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
@@ -226,27 +212,53 @@ fn main() -> anyhow::Result<()> {
         label_info_to_ents.len() as u64,
         !args.progress,
     );
-    for ((label, info), entities) in &mut label_info_to_ents {
+    for ((label, info), mut entities) in
+        label_info_to_ents
+            .into_iter()
+            .sorted_by_key(|(key, entities)| {
+                let sum: usize = entities.iter().map(|(c, _)| c).sum();
+                (Reverse(sum / entities.len()), *key)
+            })
+    {
         pbar.inc(1);
         if entities.len() <= 1 {
-            label_to_ent.insert(
-                (label, Some(info)),
-                Ent::LabelInfo(entities.iter_mut().next().unwrap().as_str()),
-            );
+            let ent = entities.iter_mut().next().unwrap().1.as_str();
+            let alias_ent = check_for_more_popular_alias(label, ent);
+            if label_to_ent.contains_key(&(label, None))
+                || (args.check_for_popular_aliases && alias_ent.is_some())
+            {
+                assert!(label_to_ent
+                    .insert((label, Some(info)), Ent::LabelInfo(ent))
+                    .is_none());
+            } else {
+                assert!(label_to_ent
+                    .insert((label, None), Ent::Label(ent))
+                    .is_none());
+            }
             continue;
         } else if args.keep_most_common_non_unique {
-            // same as above
-            entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
-            label_to_ent.insert(
-                (label, Some(info)),
-                Ent::LabelInfo(entities.last().unwrap().as_str()),
-            );
+            entities.sort_by_key(|(c, _)| *c);
+
+            let ent = entities.pop().unwrap().1.as_str();
+            let alias_ent = check_for_more_popular_alias(label, ent);
+            if label_to_ent.contains_key(&(label, None))
+                || (args.check_for_popular_aliases && alias_ent.is_some())
+            {
+                assert!(label_to_ent
+                    .insert((label, Some(info)), Ent::LabelInfo(ent))
+                    .is_none());
+            } else {
+                assert!(label_to_ent
+                    .insert((label, None), Ent::Label(ent))
+                    .is_none());
+            }
         }
         // if the label and type/description are not unique
         // record the entities with no entry for statistics
-        ents_left.extend(entities.iter().map(|e| e.as_str()).take(entities.len() - 1));
+        ents_left.extend(entities.iter().map(|(_, e)| e.as_str()));
     }
     pbar.finish_and_clear();
+    drop(aliases_to_ents);
     let num_label_info_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
@@ -273,8 +285,7 @@ fn main() -> anyhow::Result<()> {
     let pbar = progress_bar("adding aliases", ent_infos.len() as u64, !args.progress);
     ent_infos
         .iter()
-        .sorted_by_key(|&(_, info)| (info.count))
-        .rev()
+        .sorted_by_key(|&(key, info)| (Reverse(info.count), key))
         .for_each(|(&ent, info)| {
             pbar.inc(1);
             total_aliases += info.aliases.len();
