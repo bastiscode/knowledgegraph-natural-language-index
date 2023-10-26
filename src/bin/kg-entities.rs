@@ -1,5 +1,6 @@
 use rayon::prelude::*;
 use std::{
+    cmp::Reverse,
     collections::{hash_map::Entry, HashMap, HashSet},
     fs,
     io::{BufWriter, Write},
@@ -13,7 +14,7 @@ use regex::Regex;
 use sparql_data_preparation::{
     line_iter, progress_bar, Ent, KnowledgeGraph, KnowledgeGraphProcessor,
 };
-use text_correction_utils::edit::distance;
+use text_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -95,7 +96,7 @@ fn main() -> anyhow::Result<()> {
     let mut lines = pbar.wrap_iter(line_iter(&args.file)?);
     let header = lines.next().expect("file should have at least 1 line")?;
     let lines: Vec<_> = lines.collect::<anyhow::Result<_>>()?;
-    assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 5);
+    assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 6);
     pbar.finish_and_clear();
     let pbar = progress_bar(
         "processing wikidata entities",
@@ -126,6 +127,17 @@ fn main() -> anyhow::Result<()> {
     }
     pbar.finish_and_clear();
 
+    ent_infos.values().for_each(|info| {
+        let mut types = info.types.lock().unwrap();
+        types.sort_by_key(|&type_id| {
+            Reverse(ent_infos.get(type_id).map(|info| info.count).unwrap_or(0))
+        });
+        *types = types
+            .iter()
+            .filter_map(|type_id| ent_infos.get(type_id).map(|info| info.label))
+            .collect();
+    });
+
     let num_ents = ent_infos.len();
 
     // filter out aliases that are aliases for multiple entities
@@ -144,7 +156,8 @@ fn main() -> anyhow::Result<()> {
                 }
                 Some((alias_ent, ent_infos.get(alias_ent).unwrap().count))
             })
-            .max_by_key(|&(_, count)| count) else {
+            .max_by_key(|&(_, count)| count)
+        else {
             return None;
         };
         if alias_count > info.count {
@@ -157,7 +170,7 @@ fn main() -> anyhow::Result<()> {
     // initialize the final label to entity mapping
     let mut label_to_ent: HashMap<(&str, Option<&str>), _> = HashMap::new();
     assert!(label_to_ents.values().map(|ents| ents.len()).sum::<usize>() == num_ents);
-    let mut label_desc_to_ents = HashMap::new();
+    let mut label_info_to_ents = HashMap::new();
     let pbar = progress_bar(
         "adding unique labels",
         label_to_ents.len() as u64,
@@ -186,18 +199,18 @@ fn main() -> anyhow::Result<()> {
                 label_to_ent.insert((label, None), ent);
             }
         }
-        // if the label alone is not unique, we add the description to it and try again
+        // if the label alone is not unique, we add the type or description to it and try again
         for ent in entities {
-            let desc = ent_infos.get(ent.as_str()).unwrap().desc;
-            if desc.is_empty() {
+            let info = ent_infos.get(ent.as_str()).unwrap().info();
+            if info.is_empty() {
                 continue;
             }
-            let label_desc = format!("{label} ({desc})");
-            if label_to_ent.contains_key(&(label_desc.as_str(), None)) {
+            let label_info = format!("{label} ({info})");
+            if label_to_ent.contains_key(&(label_info.as_str(), None)) {
                 continue;
             }
-            label_desc_to_ents
-                .entry((label, desc))
+            label_info_to_ents
+                .entry((label, info.to_string()))
                 .or_insert_with(Vec::new)
                 .push(ent);
         }
@@ -209,32 +222,32 @@ fn main() -> anyhow::Result<()> {
 
     let mut ents_left: HashSet<_> = HashSet::new();
     let pbar = progress_bar(
-        "adding label-description pairs",
-        label_desc_to_ents.len() as u64,
+        "adding label-info pairs",
+        label_info_to_ents.len() as u64,
         !args.progress,
     );
-    for ((label, desc), entities) in &mut label_desc_to_ents {
+    for ((label, info), entities) in &mut label_info_to_ents {
         pbar.inc(1);
         if entities.len() <= 1 {
             label_to_ent.insert(
-                (label, Some(desc)),
-                Ent::LabelDesc(entities.iter_mut().next().unwrap().as_str()),
+                (label, Some(info)),
+                Ent::LabelInfo(entities.iter_mut().next().unwrap().as_str()),
             );
             continue;
         } else if args.keep_most_common_non_unique {
             // same as above
             entities.sort_by_key(|ent| ent_infos.get(ent.as_str()).unwrap().count);
             label_to_ent.insert(
-                (label, Some(desc)),
-                Ent::LabelDesc(entities.last().unwrap().as_str()),
+                (label, Some(info)),
+                Ent::LabelInfo(entities.last().unwrap().as_str()),
             );
         }
-        // if the label and description are not unique
+        // if the label and type/description are not unique
         // record the entities with no entry for statistics
         ents_left.extend(entities.iter().map(|e| e.as_str()).take(entities.len() - 1));
     }
     pbar.finish_and_clear();
-    let num_label_desc_unique = label_to_ent.len();
+    let num_label_info_unique = label_to_ent.len();
     // assert!(label_to_ent.iter().unique_by(|&(_, ent)| ent).count() == label_to_ent.len());
 
     println!("{} entities", args.knowledge_base);
@@ -245,10 +258,10 @@ fn main() -> anyhow::Result<()> {
         "label coverage:           {:.2}%",
         100.0 * num_label_unique as f32 / num_ents as f32
     );
-    println!("unique by label and desc: {}", num_label_desc_unique);
+    println!("unique by label and info: {}", num_label_info_unique);
     println!(
-        "label and desc coverage:  {:.2}%",
-        100.0 * num_label_desc_unique as f32 / num_ents as f32
+        "label and info coverage:  {:.2}%",
+        100.0 * num_label_info_unique as f32 / num_ents as f32
     );
     println!("entities left:            {}", ents_left.len());
     // free memory after logging
@@ -269,11 +282,11 @@ fn main() -> anyhow::Result<()> {
                 if let Entry::Vacant(entry) = label_to_ent.entry((alias, None)) {
                     entry.insert(Ent::Alias(ent));
                     continue;
-                } else if info.desc.is_empty() {
+                } else if info.info().is_empty() {
                     continue;
                 }
-                if let Entry::Vacant(entry) = label_to_ent.entry((alias, Some(info.desc))) {
-                    entry.insert(Ent::AliasDesc(ent));
+                if let Entry::Vacant(entry) = label_to_ent.entry((alias, Some(info.info()))) {
+                    entry.insert(Ent::AliasInfo(ent));
                 }
             }
         });
@@ -281,8 +294,8 @@ fn main() -> anyhow::Result<()> {
 
     println!(
         "added unique aliases:     {} ({:.2}% of all aliases)",
-        label_to_ent.len() - num_label_desc_unique,
-        100.0 * (label_to_ent.len() - num_label_desc_unique) as f32 / total_aliases as f32
+        label_to_ent.len() - num_label_info_unique,
+        100.0 * (label_to_ent.len() - num_label_info_unique) as f32 / total_aliases as f32
     );
     println!("final index size:         {}", label_to_ent.len());
     println!(
@@ -300,7 +313,7 @@ fn main() -> anyhow::Result<()> {
         output_dict
             .entry(ent.as_str())
             .or_insert_with(Vec::new)
-            .push((label, matches!(ent, Ent::Alias(_) | Ent::AliasDesc(_))));
+            .push((label, matches!(ent, Ent::Alias(_) | Ent::AliasInfo(_))));
     }
 
     let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(args.output)?)));
@@ -309,51 +322,51 @@ fn main() -> anyhow::Result<()> {
         pbar.inc(1);
         let org_label: Vec<_> = labels
             .iter()
-            .filter_map(|&(&(label, desc), is_alias)| if desc.is_none() && !is_alias {
+            .filter_map(|&(&(label, info), is_alias)| if info.is_none() && !is_alias {
                 Some(label)
             } else {
                 None
             })
             .collect();
-        let desc_label: Vec<_> = labels
+        let info_label: Vec<_> = labels
             .iter()
-            .filter_map(|&(&(label, desc), is_alias)| if desc.is_some() && !is_alias {
-                Some(format!("{} ({})", label, desc.unwrap()))
+            .filter_map(|&(&(label, info), is_alias)| if info.is_some() && !is_alias {
+                Some(format!("{} ({})", label, info.unwrap()))
             } else {
                 None
             })
             .collect();
         let mut aliases = labels
             .iter()
-            .filter_map(|&(&(label, desc), is_alias)| if desc.is_none() && is_alias {Some(label)} else {None})
+            .filter_map(|&(&(label, info), is_alias)| if info.is_none() && is_alias {Some(label)} else {None})
             .collect::<Vec<_>>();
-        let mut alias_descs = labels
+        let mut alias_infos = labels
             .iter()
-            .filter_map(|&(&(label, desc), is_alias)| if desc.is_some() && is_alias {
-                Some(format!("{} ({})", label, desc.unwrap()))
+            .filter_map(|&(&(label, info), is_alias)| if info.is_some() && is_alias {
+                Some(format!("{} ({})", label, info.unwrap()))
             } else {
                 None
                 })
             .collect::<Vec<_>>();
-        assert_eq!(org_label.len() + desc_label.len() + aliases.len() + alias_descs.len(), labels.len());
+        assert_eq!(org_label.len() + info_label.len() + aliases.len() + alias_infos.len(), labels.len());
         assert!(
-            org_label.len() + desc_label.len() <= 1,
-            "expected either an original label or a label + descprition, but got {org_label:#?} and {desc_label:#?}"
+            org_label.len() + info_label.len() <= 1,
+            "expected either an original label or a label + info, but got {org_label:#?} and {info_label:#?}"
         );
         let info = ent_infos.get(&ent).unwrap();
         let label = if let Some(&label) = org_label.first() {
             label.to_string()
-        } else if let Some(label) = desc_label.first() {
+        } else if let Some(label) = info_label.first() {
             label.clone()
-        } else if !aliases.is_empty() || info.desc.is_empty() {
+        } else if !aliases.is_empty() || info.info().is_empty() {
             info.label.to_string()
         } else {
-            format!("{} ({})", info.label, info.desc)
+            format!("{} ({})", info.label, info.info())
         };
         aliases.sort_by_key(|&alias| {
             distance(&label, alias, true, false, false, false) as usize
         });
-        alias_descs.sort_by_key(|alias| {
+        alias_infos.sort_by_key(|alias| {
             distance(&label, alias, true, false, false, false) as usize
         });
         writeln!(
@@ -367,9 +380,9 @@ fn main() -> anyhow::Result<()> {
             },
             org_label
                 .into_iter()
-                .chain(desc_label.iter().map(|s| s.as_str()))
+                .chain(info_label.iter().map(|s| s.as_str()))
                 .chain(aliases)
-                .chain(alias_descs.iter().map(|s| s.as_str()))
+                .chain(alias_infos.iter().map(|s| s.as_str()))
                 .join("\t")
         )
     })?;

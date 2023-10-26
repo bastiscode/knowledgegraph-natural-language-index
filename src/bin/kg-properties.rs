@@ -11,7 +11,7 @@ use sparql_data_preparation::{
     line_iter, progress_bar, wikidata_qualifiers, KnowledgeGraph, KnowledgeGraphProcessor, Prop,
     PropInfo,
 };
-use text_correction_utils::edit::distance;
+use text_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -148,8 +148,8 @@ fn main() -> anyhow::Result<()> {
             .into_iter()
             .chain(labels.iter())
             .flat_map(|l| wikidata_qualifiers(l.as_str()))
-            .fold(HashMap::new(), |mut map, (lbl, pfx)| {
-                map.entry(pfx).or_insert_with(Vec::new).push(lbl);
+            .fold(HashMap::<_, Vec<_>>::new(), |mut map, (lbl, pfx)| {
+                map.entry(pfx).or_default().push(lbl);
                 map
             })
             .into_iter()

@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::io::BufRead;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::{fs, io::BufReader};
 
 use anyhow::{anyhow, bail};
@@ -9,38 +10,38 @@ use anyhow::{anyhow, bail};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use regex::Regex;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd)]
 pub enum Ent<'a> {
     Label(&'a str),
-    LabelDesc(&'a str),
+    LabelInfo(&'a str),
     Alias(&'a str),
-    AliasDesc(&'a str),
+    AliasInfo(&'a str),
 }
 
 impl<'s> Ent<'s> {
     pub fn as_str(&self) -> &'s str {
         match self {
-            Ent::Label(s) | Ent::LabelDesc(s) => s,
-            Ent::Alias(s) | Ent::AliasDesc(s) => s,
+            Ent::Label(s) | Ent::LabelInfo(s) => s,
+            Ent::Alias(s) | Ent::AliasInfo(s) => s,
         }
     }
 }
 
-impl PartialOrd for Ent<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(match (self, other) {
-            (Ent::Label(_), Ent::LabelDesc(_) | Ent::Alias(_) | Ent::AliasDesc(_)) => {
+impl Ord for Ent<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Ent::Label(_), Ent::LabelInfo(_) | Ent::Alias(_) | Ent::AliasInfo(_)) => {
                 Ordering::Less
             }
-            (Ent::LabelDesc(_), Ent::Alias(_) | Ent::AliasDesc(_)) => Ordering::Less,
-            (Ent::Alias(_), Ent::AliasDesc(_)) => Ordering::Less,
-            (Ent::AliasDesc(_), Ent::Label(_) | Ent::LabelDesc(_) | Ent::Alias(_)) => {
+            (Ent::LabelInfo(_), Ent::Alias(_) | Ent::AliasInfo(_)) => Ordering::Less,
+            (Ent::Alias(_), Ent::AliasInfo(_)) => Ordering::Less,
+            (Ent::AliasInfo(_), Ent::Label(_) | Ent::LabelInfo(_) | Ent::Alias(_)) => {
                 Ordering::Greater
             }
-            (Ent::Alias(_), Ent::Label(_) | Ent::LabelDesc(_)) => Ordering::Greater,
-            (Ent::LabelDesc(_), Ent::Label(_)) => Ordering::Greater,
+            (Ent::Alias(_), Ent::Label(_) | Ent::LabelInfo(_)) => Ordering::Greater,
+            (Ent::LabelInfo(_), Ent::Label(_)) => Ordering::Greater,
             _ => Ordering::Equal,
-        })
+        }
     }
 }
 
@@ -54,23 +55,35 @@ pub struct EntityInfo<'a> {
     pub label: &'a str,
     pub desc: &'a str,
     pub aliases: Vec<&'a str>,
+    pub types: Arc<Mutex<Vec<&'a str>>>,
     pub count: usize,
     pub redirects: Option<&'a Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord)]
+impl<'a> EntityInfo<'a> {
+    pub fn info(&self) -> &str {
+        let types = self.types.lock().unwrap();
+        if types.is_empty() {
+            self.desc
+        } else {
+            types[0]
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd)]
 pub enum Prop<'a> {
     Label(&'a str),
     Alias(&'a str),
 }
 
-impl PartialOrd for Prop<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(match (self, other) {
+impl Ord for Prop<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
             (Prop::Label(_), Prop::Alias(_)) => Ordering::Less,
             (Prop::Alias(_), Prop::Label(_)) => Ordering::Greater,
             _ => Ordering::Equal,
-        })
+        }
     }
 }
 
@@ -205,7 +218,7 @@ impl KnowledgeGraphProcessor {
     #[inline]
     pub fn parse_entity<'s>(&self, line: &'s str) -> anyhow::Result<(Ent<'s>, EntityInfo<'s>)> {
         let splits: Vec<_> = line.split_terminator('\t').collect();
-        if splits.len() < 2 || splits.len() > 5 {
+        if splits.len() < 2 || splits.len() > 6 {
             bail!("invalid entity line: {}", line);
         }
         let Some(ent) = self.ent_pattern.captures(splits[0]) else {
@@ -221,8 +234,17 @@ impl KnowledgeGraphProcessor {
         } else {
             ""
         };
-        let aliases = if splits.len() == 5 {
-            splits[4].split_terminator(';').map(str::trim).collect()
+        let types = Arc::new(Mutex::new(
+            splits[4]
+                .split_terminator(';')
+                .filter_map(|s| {
+                    let cap = self.ent_pattern.captures(s)?;
+                    Some(cap.get(1).unwrap().as_str().trim())
+                })
+                .collect(),
+        ));
+        let aliases = if splits.len() == 6 {
+            splits[5].split_terminator(';').map(str::trim).collect()
         } else {
             vec![]
         };
@@ -232,6 +254,7 @@ impl KnowledgeGraphProcessor {
                 label,
                 desc,
                 count: splits[3].parse()?,
+                types,
                 aliases,
                 redirects: None,
             },
