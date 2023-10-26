@@ -216,8 +216,8 @@ fn main() -> anyhow::Result<()> {
         label_info_to_ents
             .into_iter()
             .sorted_by_key(|(key, entities)| {
-                let sum: usize = entities.iter().map(|(c, _)| c).sum();
-                (Reverse(sum / entities.len()), *key)
+                let max = entities.iter().map(|(c, _)| c).max().copied().unwrap_or(0);
+                (Reverse(max), entities.len(), *key)
             })
     {
         pbar.inc(1);
