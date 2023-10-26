@@ -84,7 +84,6 @@ compute_entities:
 		--knowledge-base dbpedia \
 		> $(OUT_DIR)/dbpedia-entities-output.txt
 
-
 .PHONY: download
 download: download_properties download_redirects download_entities
 
