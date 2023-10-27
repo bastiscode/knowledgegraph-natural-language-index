@@ -97,8 +97,8 @@ compute: compute_properties compute_entities
 .PHONY: index
 index: download compute
 
-.PHONY: code
-code:
+.PHONY: all
+all:
 	cargo fmt --all
 	cargo clippy -- -D warnings
 	cargo test
