@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::anyhow;
 use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
@@ -327,7 +328,31 @@ fn main() -> anyhow::Result<()> {
             .push((label, matches!(ent, Ent::Alias(_) | Ent::AliasInfo(_))));
     }
 
-    let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(args.output)?)));
+    let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
+        args.output.as_path(),
+    )?)));
+    let output_stem = args
+        .output
+        .file_stem()
+        .ok_or_else(|| anyhow!("failed to extract file stem from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let output_ext = args
+        .output
+        .extension()
+        .ok_or_else(|| anyhow!("failed to extract extension from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let output_dir = args
+        .output
+        .parent()
+        .ok_or_else(|| anyhow!("failed to extract directory from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let redirect_output_file = format!("{output_dir}/{output_stem}.redirects.{output_ext}");
+    let redirect_output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
+        redirect_output_file,
+    )?)));
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
     output_dict.into_par_iter().try_for_each(|(ent, labels)| {
         pbar.inc(1);
@@ -380,15 +405,18 @@ fn main() -> anyhow::Result<()> {
         alias_infos.sort_by_key(|alias| {
             distance(&label, alias, true, false, false, false) as usize
         });
+        if let Some(redirs) = info.redirects {
+            writeln!(
+                redirect_output.lock().unwrap(),
+                "{}\t{}",
+                kg.format_entity(ent),
+                redirs.iter().map(|r| kg.format_entity(r)).join("\t")
+            )?;
+        }
         writeln!(
             output.lock().unwrap(),
-            "{}\t{}\t{}",
+            "{}\t{}",
             kg.format_entity(ent),
-            if let Some(redirs) = info.redirects {
-                redirs.iter().map(|r| kg.format_entity(r)).join(";")
-            } else {
-                "".to_string()
-            },
             org_label
                 .into_iter()
                 .chain(info_label.iter().map(|s| s.as_str()))

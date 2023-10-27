@@ -156,7 +156,7 @@ fn main() -> anyhow::Result<()> {
             .try_for_each(|(pfx, lbls)| {
                 writeln!(
                     output,
-                    "{}\t\t{}",
+                    "{}\t{}",
                     kg.format_property(prop, Some(&pfx)),
                     lbls.join("\t")
                 )
