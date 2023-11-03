@@ -66,13 +66,13 @@ fn main() -> anyhow::Result<()> {
                 continue;
             };
             let redirs: Vec<_> = splits[1]
-                .split_terminator(';')
+                .split_terminator("; ")
                 .map(|s| {
                     kg.ent_pattern
                         .captures(s.trim())
                         .unwrap_or_else(|| {
                             panic!(
-                                "could not find entity with pattern {} n {s}",
+                                "could not find entity with pattern {} in {s}",
                                 kg.ent_pattern
                             )
                         })
