@@ -38,7 +38,7 @@ ORDER BY DESC(?ent_count)
 
 PREFIX dbo: <http://dbpedia.org/ontology/>
 PREFIX dbr: <http://dbpedia.org/resource/>
-SELECT ?target (GROUP_CONCAT(DISTINCT ?source; SEPARATOR = "\t") as ?sources) 
+SELECT ?target (GROUP_CONCAT(DISTINCT ?source; SEPARATOR = "; ") as ?sources) 
 WHERE {
   ?source dbo:wikiPageRedirects ?target .
 }

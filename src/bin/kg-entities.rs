@@ -61,14 +61,14 @@ fn main() -> anyhow::Result<()> {
         for line in lines {
             pbar.inc(1);
             let splits: Vec<_> = line.split_terminator('\t').collect();
-            assert!(splits.len() >= 2);
+            assert!(splits.len() == 2);
             let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
                 ent.get(1).unwrap().as_str().to_string()
             } else {
                 continue;
             };
-            let redirs: Vec<_> = splits[1..]
-                .iter()
+            let redirs: Vec<_> = splits[1]
+                .split_terminator(';')
                 .map(|s| {
                     ent_pattern
                         .captures(s.trim())

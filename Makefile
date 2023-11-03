@@ -49,9 +49,9 @@ download_entities:
 .PHONY: download_redirects
 download_redirects:
 	@mkdir -p $(OUT_DIR)
-	@curl -s $(WD_ENDPOINT) -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> PREFIX owl: <http://www.w3.org/2002/07/owl#> SELECT ?ent (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = \"\\t\") AS ?redirs) WHERE { ?redir owl:sameAs ?ent . FILTER(REGEX(STR(?ent), \"entity/Q\\\\d+\")) } GROUP BY ?ent" \
+	@curl -s $(WD_ENDPOINT) -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> PREFIX owl: <http://www.w3.org/2002/07/owl#> SELECT ?ent (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = \"; \") AS ?redirs) WHERE { ?redir owl:sameAs ?ent . FILTER(REGEX(STR(?ent), \"entity/Q\\\\d+\")) } GROUP BY ?ent" \
 	> $(OUT_DIR)/wikidata-entity-redirects.tsv
-	@curl -s $(DB_ENDPOINT) -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX dbo: <http://dbpedia.org/ontology/> PREFIX dbr: <http://dbpedia.org/resource/> SELECT ?target (GROUP_CONCAT(DISTINCT ?source; SEPARATOR = \"\\t\") as ?sources) WHERE { ?source dbo:wikiPageRedirects ?target } GROUP BY ?target" \
+	@curl -s $(DB_ENDPOINT) -H "Accept: text/tab-separated-values" -H "Content-type: application/sparql-query" --data "PREFIX dbo: <http://dbpedia.org/ontology/> PREFIX dbr: <http://dbpedia.org/resource/> SELECT ?target (GROUP_CONCAT(DISTINCT ?source; SEPARATOR = \"; \") as ?sources) WHERE { ?source dbo:wikiPageRedirects ?target } GROUP BY ?target" \
 	> $(OUT_DIR)/dbpedia-entity-redirects.tsv
 
 .PHONY: compute_entities

@@ -61,7 +61,7 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 SELECT 
   ?ent 
-  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "\t") AS ?redirs)
+  (GROUP_CONCAT(DISTINCT ?redir; SEPARATOR = "; ") AS ?redirs)
 WHERE {
   ?redir owl:sameAs ?ent .
   FILTER(REGEX(STR(?ent), "entity/Q\\d+"))
