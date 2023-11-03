@@ -130,10 +130,10 @@ impl TryFrom<&str> for KnowledgeGraph {
 }
 
 pub struct KnowledgeGraphProcessor {
-    label_pattern: Regex,
-    prop_pattern: Regex,
-    ent_pattern: Regex,
-    kg: KnowledgeGraph,
+    pub label_pattern: Regex,
+    pub prop_pattern: Regex,
+    pub ent_pattern: Regex,
+    pub kg: KnowledgeGraph,
 }
 
 impl KnowledgeGraphProcessor {

@@ -11,7 +11,6 @@ use std::{
 use anyhow::anyhow;
 use clap::Parser;
 use itertools::Itertools;
-use regex::Regex;
 use sparql_data_preparation::{
     line_iter, progress_bar, Ent, KnowledgeGraph, KnowledgeGraphProcessor,
 };
@@ -47,7 +46,6 @@ fn main() -> anyhow::Result<()> {
     let kg = KnowledgeGraphProcessor::new(kg)?;
 
     let redirects = if let Some(path) = args.redirects {
-        let ent_pattern = Regex::new(r"http://www.wikidata.org/entity/(Q\d+)")?;
         let pbar = progress_bar("loading entity redirects", u64::MAX, !args.progress);
         let lines: Vec<_> = pbar
             .wrap_iter(line_iter(path)?)
@@ -62,7 +60,7 @@ fn main() -> anyhow::Result<()> {
             pbar.inc(1);
             let splits: Vec<_> = line.split_terminator('\t').collect();
             assert!(splits.len() == 2);
-            let ent = if let Some(ent) = ent_pattern.captures(splits[0].trim()) {
+            let ent = if let Some(ent) = kg.ent_pattern.captures(splits[0].trim()) {
                 ent.get(1).unwrap().as_str().to_string()
             } else {
                 continue;
@@ -70,7 +68,7 @@ fn main() -> anyhow::Result<()> {
             let redirs: Vec<_> = splits[1]
                 .split_terminator(';')
                 .map(|s| {
-                    ent_pattern
+                    kg.ent_pattern
                         .captures(s.trim())
                         .unwrap()
                         .get(1)
@@ -93,14 +91,18 @@ fn main() -> anyhow::Result<()> {
     let mut label_to_ents = HashMap::new();
     let mut aliases_to_ents = HashMap::new();
 
-    let pbar = progress_bar("loading wikidata entities", u64::MAX, !args.progress);
+    let pbar = progress_bar(
+        &format!("loading {} entities", &args.knowledge_base),
+        u64::MAX,
+        !args.progress,
+    );
     let mut lines = pbar.wrap_iter(line_iter(&args.file)?);
     let header = lines.next().expect("file should have at least 1 line")?;
     let lines: Vec<_> = lines.collect::<anyhow::Result<_>>()?;
     assert_eq!(header.split_terminator('\t').collect::<Vec<_>>().len(), 6);
     pbar.finish_and_clear();
     let pbar = progress_bar(
-        "processing wikidata entities",
+        &format!("processing {} entities", &args.knowledge_base),
         lines.len() as u64,
         !args.progress,
     );
