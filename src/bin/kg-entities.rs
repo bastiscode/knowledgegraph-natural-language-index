@@ -70,7 +70,12 @@ fn main() -> anyhow::Result<()> {
                 .map(|s| {
                     kg.ent_pattern
                         .captures(s.trim())
-                        .unwrap()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "could not find entity with pattern {} n {s}",
+                                kg.ent_pattern
+                            )
+                        })
                         .get(1)
                         .unwrap()
                         .as_str()
