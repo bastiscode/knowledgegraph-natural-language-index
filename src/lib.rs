@@ -140,14 +140,14 @@ impl KnowledgeGraphProcessor {
     pub fn new(kg: KnowledgeGraph) -> anyhow::Result<Self> {
         let prop_pattern = Regex::new(match kg {
             KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(P\d+)>?",
-            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/([^>]+)>?",
-            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/((?:property|ontology)/[^>]+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(.+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/((?:property|ontology)/.+)>?",
         })?;
         let label_pattern = Regex::new("^\"(.*)\"@en$")?;
         let ent_pattern = Regex::new(match kg {
             KnowledgeGraph::Wikidata => r"<?http://www.wikidata.org/entity/(Q\d+)>?",
-            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(m\.[^>]+)>?",
-            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/resource/([^>]+)>?",
+            KnowledgeGraph::Freebase => r"<?http://rdf.freebase.com/ns/(m\..+)>?",
+            KnowledgeGraph::DBPedia => r"<?http://dbpedia.org/resource/(.+)>?",
         })?;
 
         Ok(Self {
