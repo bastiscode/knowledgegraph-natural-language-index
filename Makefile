@@ -5,6 +5,9 @@ WD_ENDPOINT=https://qlever.cs.uni-freiburg.de/api/wikidata
 DB_ENDPOINT=https://qlever.cs.uni-freiburg.de/api/dbpedia
 FB_ENDPOINT=https://qlever.cs.uni-freiburg.de/api/freebase
 
+.PHONY: index
+index: download compute
+
 .PHONY: download_properties
 download_properties:
 	@mkdir -p $(OUT_DIR)
@@ -97,11 +100,8 @@ download: download_properties download_redirects download_entities
 .PHONY: compute
 compute: compute_properties compute_entities
 
-.PHONY: index
-index: download compute
-
-.PHONY: all
-all:
+.PHONY: code
+code:
 	cargo fmt --all
 	cargo clippy -- -D warnings
 	cargo test
