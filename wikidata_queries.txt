@@ -37,16 +37,10 @@ SELECT
     ?ent ^schema:about/wikibase:sitelinks ?links . 
   }
   OPTIONAL {
-    {
-      ?ent wdt:P31 ?type .
-	} UNION {
-	  ?ent wdt:P279 ?type .
-	}
-  }
-  OPTIONAL {
     ?ent schema:description ?ent_description .
     FILTER (LANG(?ent_description) = "en") .
   }
+  BIND("" AS ?type) 
   OPTIONAL {
     ?ent skos:altLabel ?alias .
     FILTER (LANG(?alias) = "en") .
