@@ -31,6 +31,9 @@ struct Args {
     progress: bool,
 
     #[clap(short, long)]
+    ignore_types: bool,
+
+    #[clap(short, long)]
     keep_most_common_non_unique: bool,
 
     #[clap(short, long)]
@@ -113,7 +116,7 @@ fn main() -> anyhow::Result<()> {
     );
     for line in &lines {
         pbar.inc(1);
-        let (ent, mut info) = kg.parse_entity(line)?;
+        let (ent, mut info) = kg.parse_entity(line, args.ignore_types)?;
 
         label_to_ents
             .entry(info.label)

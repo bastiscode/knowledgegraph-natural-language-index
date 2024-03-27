@@ -216,7 +216,11 @@ impl KnowledgeGraphProcessor {
     }
 
     #[inline]
-    pub fn parse_entity<'s>(&self, line: &'s str) -> anyhow::Result<(Ent<'s>, EntityInfo<'s>)> {
+    pub fn parse_entity<'s>(
+        &self,
+        line: &'s str,
+        ignore_types: bool,
+    ) -> anyhow::Result<(Ent<'s>, EntityInfo<'s>)> {
         let splits: Vec<_> = line.split_terminator('\t').collect();
         if splits.len() < 2 || splits.len() > 6 {
             bail!("invalid entity line: {}", line);
@@ -234,15 +238,17 @@ impl KnowledgeGraphProcessor {
         } else {
             ""
         };
-        let types = Arc::new(Mutex::new(
+        let types = Arc::new(Mutex::new(if ignore_types {
+            vec![]
+        } else {
             splits[4]
                 .split_terminator(';')
                 .filter_map(|s| {
                     let cap = self.ent_pattern.captures(s)?;
                     Some(cap.get(1).unwrap().as_str().trim())
                 })
-                .collect(),
-        ));
+                .collect()
+        }));
         let aliases = if splits.len() == 6 {
             splits[5].split_terminator(';').map(str::trim).collect()
         } else {

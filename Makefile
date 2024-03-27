@@ -63,9 +63,10 @@ compute_entities:
 		--keep-most-common-non-unique \
 		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
 		--knowledge-base wikidata \
+		--ignore-types \
 		> $(OUT_DIR)/wikidata-entities-output.txt
 	@$(CARGO) run --bin kg-entities --release -- \
-		--file $(OUT_DIR)/wikidata-entities.typed.tsv \
+		--file $(OUT_DIR)/wikidata-entities-index.tsv \
 		--output $(OUT_DIR)/wikidata-entities-typed-index.tsv \
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
@@ -78,6 +79,7 @@ compute_entities:
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
 		--knowledge-base freebase \
+		--ignore-types \
 		> $(OUT_DIR)/freebase-entities-output.txt
 	@$(CARGO) run --bin kg-entities --release -- \
 		--file $(OUT_DIR)/dbpedia-entities.tsv \
@@ -86,6 +88,7 @@ compute_entities:
 		--keep-most-common-non-unique \
 		--redirects $(OUT_DIR)/dbpedia-entity-redirects.tsv \
 		--knowledge-base dbpedia \
+		--ignore-types \
 		> $(OUT_DIR)/dbpedia-entities-output.txt
 
 .PHONY: download
