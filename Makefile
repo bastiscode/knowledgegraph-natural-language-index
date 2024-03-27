@@ -1,7 +1,7 @@
 OUT_DIR=.
 CARGO=cargo
 
-TIMEOUT=30s
+TIMEOUT=300s
 
 WD_ENDPOINT=https://qlever.cs.uni-freiburg.de/api/wikidata
 WD_ACCESS_TOKEN=null
