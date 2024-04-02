@@ -359,6 +359,12 @@ fn main() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow!("failed to extract directory from {:#?}", args.output))?
         .to_str()
         .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
+        "{output_dir}/{output_stem}.prefixes.{output_ext}"
+    ))?);
+    for (short, prefix) in kg.property_prefixes() {
+        writeln!(prefix_output_file, "{short}\t{prefix}")?;
+    }
     let redirect_output_file = format!("{output_dir}/{output_stem}.redirects.{output_ext}");
     let redirect_output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
         redirect_output_file,

@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use anyhow::anyhow;
 use clap::Parser;
 use itertools::Itertools;
 use sparql_data_preparation::{
@@ -109,7 +110,7 @@ fn main() -> anyhow::Result<()> {
     );
     println!("total unique:    {}", label_to_prop.len());
 
-    let mut output = BufWriter::new(fs::File::create(args.output)?);
+    let mut output = BufWriter::new(fs::File::create(&args.output)?);
     let mut output_dict = HashMap::new();
     for (label, prop) in &label_to_prop {
         output_dict
@@ -161,6 +162,31 @@ fn main() -> anyhow::Result<()> {
                     lbls.join("\t")
                 )
             })?;
+    }
+
+    let output_stem = args
+        .output
+        .file_stem()
+        .ok_or_else(|| anyhow!("failed to extract file stem from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let output_ext = args
+        .output
+        .extension()
+        .ok_or_else(|| anyhow!("failed to extract extension from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let output_dir = args
+        .output
+        .parent()
+        .ok_or_else(|| anyhow!("failed to extract directory from {:#?}", args.output))?
+        .to_str()
+        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
+    let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
+        "{output_dir}/{output_stem}.prefixes.{output_ext}"
+    ))?);
+    for (short, prefix) in kg.property_prefixes() {
+        writeln!(prefix_output_file, "{short}\t{prefix}")?;
     }
 
     if args.inverse_output.is_some() {

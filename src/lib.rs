@@ -283,6 +283,38 @@ impl KnowledgeGraphProcessor {
         }
     }
 
+    pub fn entity_prefixes(&self) -> Vec<(&str, &str)> {
+        match self.kg {
+            KnowledgeGraph::Wikidata => vec![("wd:", "http://www.wikidata.org/entity/")],
+            KnowledgeGraph::Freebase => vec![("fb:", "http://rdf.freebase.com/ns/")],
+            KnowledgeGraph::DBPedia => vec![("dbr:", "http://dbpedia.org/resource/")],
+        }
+    }
+
+    pub fn property_prefixes(&self) -> Vec<(&str, &str)> {
+        match self.kg {
+            KnowledgeGraph::Wikidata => vec![
+                ("wdt:", "http://www.wikidata.org/prop/direct/"),
+                ("p:", "http://www.wikidata.org/prop/"),
+                ("pq:", "http://www.wikidata.org/prop/qualifier/"),
+                (
+                    "pqn:",
+                    "http://www.wikidata.org/prop/qualifier/value-normalized/",
+                ),
+                ("ps:", "http://www.wikidata.org/prop/statement/"),
+                (
+                    "psn:",
+                    "http://www.wikidata.org/prop/statement/value-normalized/",
+                ),
+            ],
+            KnowledgeGraph::Freebase => vec![("fbp:", "http://rdf.freebase.com/ns/property.")],
+            KnowledgeGraph::DBPedia => vec![
+                ("dbp:", "http://dbpedia.org/property/"),
+                ("dbo:", "http://dbpedia.org/ontology/"),
+            ],
+        }
+    }
+
     #[inline]
     pub fn format_entity(&self, e: &str) -> String {
         match self.kg {
