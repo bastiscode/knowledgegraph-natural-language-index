@@ -362,13 +362,15 @@ fn main() -> anyhow::Result<()> {
     let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
         "{output_dir}/{output_stem}.prefixes.{output_ext}"
     ))?);
-    for (short, prefix) in kg.property_prefixes() {
+    for (short, prefix) in kg.entity_prefixes() {
         writeln!(prefix_output_file, "{short}\t{prefix}")?;
     }
+
     let redirect_output_file = format!("{output_dir}/{output_stem}.redirects.{output_ext}");
     let redirect_output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
         redirect_output_file,
     )?)));
+
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
     output_dict.into_par_iter().try_for_each(|(ent, labels)| {
         pbar.inc(1);
