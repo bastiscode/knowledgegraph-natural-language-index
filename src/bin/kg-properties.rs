@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
 
         writeln!(
             output,
-            "{}\t\t{}",
+            "{}\t{}",
             kg.format_property(prop, None),
             vec![&label]
                 .into_iter()
@@ -185,8 +185,8 @@ fn main() -> anyhow::Result<()> {
     let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
         "{output_dir}/{output_stem}.prefixes.{output_ext}"
     ))?);
-    for (short, prefix) in kg.property_prefixes() {
-        writeln!(prefix_output_file, "{short}\t{prefix}")?;
+    for (short, long) in kg.property_prefixes() {
+        writeln!(prefix_output_file, "{short}\t{long}")?;
     }
 
     if args.inverse_output.is_some() {

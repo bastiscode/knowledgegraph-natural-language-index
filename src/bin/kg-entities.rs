@@ -362,8 +362,8 @@ fn main() -> anyhow::Result<()> {
     let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
         "{output_dir}/{output_stem}.prefixes.{output_ext}"
     ))?);
-    for (short, prefix) in kg.entity_prefixes() {
-        writeln!(prefix_output_file, "{short}\t{prefix}")?;
+    for (short, long) in kg.entity_prefixes() {
+        writeln!(prefix_output_file, "{short}\t{long}")?;
     }
 
     let redirect_output_file = format!("{output_dir}/{output_stem}.redirects.{output_ext}");
