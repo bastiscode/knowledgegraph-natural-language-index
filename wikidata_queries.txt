@@ -29,6 +29,9 @@ SELECT
       ?ent ^schema:about/schema:isPartOf ?wiki .
       FILTER(REGEX(STR(?wiki), "^https?://.*.wikipedia.org")) .
 	} GROUP BY ?ent
+  } MINUS {
+    # exclude wikimedia categories
+    ?ent wdt:P31 wd:Q4167836 .
   }
   ?ent rdfs:label ?ent_name .
   FILTER(LANG(?ent_name) = "en") .
