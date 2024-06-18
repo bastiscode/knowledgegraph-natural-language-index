@@ -33,6 +33,9 @@ struct Args {
     progress: bool,
 
     #[clap(short, long)]
+    short_properties: bool,
+
+    #[clap(short, long)]
     include_wikidata_qualifiers: bool,
 }
 
@@ -127,7 +130,7 @@ fn main() -> anyhow::Result<()> {
         writeln!(
             output,
             "{}\t{}",
-            kg.format_property(prop, None),
+            kg.format_property(prop, args.short_properties, None)?,
             labels.iter().map(|p| p.as_str()).join("\t")
         )?;
         if !args.include_wikidata_qualifiers {
@@ -141,13 +144,13 @@ fn main() -> anyhow::Result<()> {
                 map
             })
             .into_iter()
-            .try_for_each(|(pfx, lbls)| {
-                writeln!(
+            .try_for_each(|(pfx, lbls)| -> anyhow::Result<()> {
+                Ok(writeln!(
                     output,
                     "{}\t{}",
-                    kg.format_property(prop, Some(&pfx)),
+                    kg.format_property(prop, args.short_properties, Some(&pfx))?,
                     lbls.join("\t")
-                )
+                )?)
             })?;
     }
 
@@ -165,8 +168,8 @@ fn main() -> anyhow::Result<()> {
                 writeln!(
                     inverse_output,
                     "{}\t{}",
-                    kg.format_property(prop, None),
-                    kg.format_property(inv, None),
+                    kg.format_property(prop, args.short_properties, None)?,
+                    kg.format_property(inv, args.short_properties, None)?,
                 )?;
             }
             num_inverse += info.inverses.len();

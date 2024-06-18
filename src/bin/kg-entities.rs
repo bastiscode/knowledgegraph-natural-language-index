@@ -38,6 +38,9 @@ struct Args {
     check_for_popular_aliases: bool,
 
     #[clap(short, long)]
+    short_entities: bool,
+
+    #[clap(short, long)]
     knowledge_base: String,
 }
 
@@ -345,7 +348,7 @@ fn main() -> anyhow::Result<()> {
     )?)));
 
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
-    output_dict.into_par_iter().try_for_each(|(ent, labels)| {
+    output_dict.into_par_iter().try_for_each(|(ent, labels)| -> anyhow::Result<()> {
         pbar.inc(1);
         let org_label: Vec<_> = labels
             .iter()
@@ -385,21 +388,21 @@ fn main() -> anyhow::Result<()> {
             writeln!(
                 redirect_output.lock().unwrap(),
                 "{}\t{}",
-                kg.format_entity(ent),
-                redirs.iter().map(|r| kg.format_entity(r)).join("\t")
+                kg.format_entity(ent, args.short_entities)?,
+                redirs.iter().map(|r| kg.format_entity(r, args.short_entities)).collect::<anyhow::Result<Vec<_>>>()?.into_iter().join("\t")
             )?;
         }
-        writeln!(
+        Ok(writeln!(
             output.lock().unwrap(),
             "{}\t{}",
-            kg.format_entity(ent),
+            kg.format_entity(ent, args.short_entities)?,
             org_label
                 .into_iter()
                 .chain(info_label.iter().map(|s| s.as_str()))
                 .chain(aliases)
                 .chain(alias_infos.iter().map(|s| s.as_str()))
                 .join("\t")
-        )
+        )?)
     })?;
     pbar.finish_and_clear();
 

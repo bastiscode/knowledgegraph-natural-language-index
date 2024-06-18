@@ -164,10 +164,7 @@ impl KnowledgeGraphProcessor {
         if splits.len() < 2 || splits.len() > 5 {
             bail!("invalid property line: {}", line);
         }
-        let Some(prop) = self.prop_pattern.captures(splits[0]) else {
-            bail!("failed to capture property in {}", splits[0]);
-        };
-        let prop = prop.get(1).unwrap().as_str().trim();
+        let prop = splits[0].trim_start_matches('<').trim_end_matches('>');
         let Some(label) = self.label_pattern.captures(splits[1]) else {
             bail!("failed to capture label in {}", splits[1]);
         };
@@ -230,10 +227,7 @@ impl KnowledgeGraphProcessor {
         if splits.len() < 2 || splits.len() > 6 {
             bail!("invalid entity line: {}", line);
         }
-        let Some(ent) = self.ent_pattern.captures(splits[0]) else {
-            bail!("failed to capture entity in {}", splits[0]);
-        };
-        let ent = ent.get(1).unwrap().as_str().trim();
+        let ent = splits[0].trim_start_matches('<').trim_end_matches('>');
         let Some(label) = self.label_pattern.captures(splits[1]) else {
             bail!("failed to capture label in {}", splits[1]);
         };
@@ -278,19 +272,33 @@ impl KnowledgeGraphProcessor {
     }
 
     #[inline]
-    pub fn format_property(&self, p: &str, pfx: Option<&str>) -> String {
-        match self.kg {
+    pub fn format_property(
+        &self,
+        p: &str,
+        short: bool,
+        pfx: Option<&str>,
+    ) -> anyhow::Result<String> {
+        if !short {
+            return Ok(p.to_string());
+        }
+        let Some(p) = self.prop_pattern.captures(p) else {
+            bail!("failed to capture property in {}", p);
+        };
+        let p = p.get(1).unwrap().as_str();
+        Ok(match self.kg {
             KnowledgeGraph::Wikidata => format!("{}:{p}", pfx.unwrap_or("wdt")),
             KnowledgeGraph::Freebase => format!("{}:{p}", pfx.unwrap_or("fb")),
             KnowledgeGraph::DBPedia => {
                 let dbp_regex = Regex::new(r"(property|ontology)/([^>]+)").unwrap();
-                let captures = dbp_regex.captures(p).unwrap();
+                let captures = dbp_regex
+                    .captures(p)
+                    .ok_or_else(|| anyhow!("invalid dbpedia property: {}", p))?;
                 let p_type = captures.get(1).unwrap().as_str();
                 let p = captures.get(2).unwrap().as_str();
                 let pfx = if p_type == "ontology" { "dbo" } else { "dbp" };
                 format!("{pfx}:{p}")
             }
-        }
+        })
     }
 
     pub fn entity_prefixes(&self) -> Vec<(&str, &str)> {
@@ -326,12 +334,19 @@ impl KnowledgeGraphProcessor {
     }
 
     #[inline]
-    pub fn format_entity(&self, e: &str) -> String {
-        match self.kg {
+    pub fn format_entity(&self, e: &str, short: bool) -> anyhow::Result<String> {
+        if !short {
+            return Ok(e.to_string());
+        }
+        let Some(e) = self.ent_pattern.captures(e) else {
+            bail!("failed to capture entity in {}", e);
+        };
+        let e = e.get(1).unwrap().as_str();
+        Ok(match self.kg {
             KnowledgeGraph::Wikidata => format!("wd:{}", e),
             KnowledgeGraph::Freebase => format!("fb:{}", e),
             KnowledgeGraph::DBPedia => format!("dbr:{}", e),
-        }
+        })
     }
 }
 
