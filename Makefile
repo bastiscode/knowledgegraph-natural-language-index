@@ -33,22 +33,25 @@ download_properties:
 
 .PHONY: compute_properties
 compute_properties:
+	@mkdir -p $(OUT_DIR)/wikidata-properties
 	@$(CARGO) run --bin kg-properties --release -- \
 		--file $(OUT_DIR)/wikidata-properties.tsv \
-		--output $(OUT_DIR)/wikidata-properties-index.tsv \
+		--output $(OUT_DIR)/wikidata-properties \
 		--include-wikidata-qualifiers \
 		--knowledge-base wikidata \
-		> $(OUT_DIR)/wikidata-properties-output.txt
+		> $(OUT_DIR)/wikidata-properties/output.txt
+	mkdir -p $(OUT_DIR)/freebase-properties
 	@$(CARGO) run --bin kg-properties --release -- \
 		--file $(OUT_DIR)/freebase-properties.tsv \
-		--output $(OUT_DIR)/freebase-properties-index.tsv \
+		--output $(OUT_DIR)/freebase-properties \
 		--knowledge-base freebase \
-		> $(OUT_DIR)/freebase-properties-output.txt
+		> $(OUT_DIR)/freebase-properties/output.txt
+	@mkdir -p $(OUT_DIR)/dbpedia-properties
 	@$(CARGO) run --bin kg-properties --release -- \
 		--file $(OUT_DIR)/dbpedia-properties.tsv \
-		--output $(OUT_DIR)/dbpedia-properties-index.tsv \
+		--output $(OUT_DIR)/dbpedia-properties \
 		--knowledge-base dbpedia \
-		> $(OUT_DIR)/dbpedia-properties-output.txt
+		> $(OUT_DIR)/dbpedia-properties/output.txt
 
 .PHONY: download_entities
 download_entities:
@@ -80,40 +83,44 @@ download_redirects:
 
 .PHONY: compute_entities
 compute_entities:
+	@mkdir -p $(OUT_DIR)/wikidata-entities
 	@$(CARGO) run --bin kg-entities --release -- \
 		--file $(OUT_DIR)/wikidata-entities.tsv \
-		--output $(OUT_DIR)/wikidata-entities-index.tsv \
+		--output $(OUT_DIR)/wikidata-entities \
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
 		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
 		--knowledge-base wikidata \
 		--ignore-types \
-		> $(OUT_DIR)/wikidata-entities-output.txt
+		> $(OUT_DIR)/wikidata-entities/output.txt
+	@mkdir -p $(OUT_DIR)/wikidata-entities-typed
 	@$(CARGO) run --bin kg-entities --release -- \
-		--file $(OUT_DIR)/wikidata-entities-index.tsv \
-		--output $(OUT_DIR)/wikidata-entities-typed-index.tsv \
+		--file $(OUT_DIR)/wikidata-entities.tsv \
+		--output $(OUT_DIR)/wikidata-entities-typed \
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
 		--redirects $(OUT_DIR)/wikidata-entity-redirects.tsv \
 		--knowledge-base wikidata \
-		> $(OUT_DIR)/wikidata-entities-typed-output.txt
+		> $(OUT_DIR)/wikidata-entities-typed/output.txt
+	@mkdir -p $(OUT_DIR)/freebase-entities
 	@$(CARGO) run --bin kg-entities --release -- \
 		--file $(OUT_DIR)/freebase-entities.tsv \
-		--output $(OUT_DIR)/freebase-entities-index.tsv \
+		--output $(OUT_DIR)/freebase-entities \
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
 		--knowledge-base freebase \
 		--ignore-types \
-		> $(OUT_DIR)/freebase-entities-output.txt
+		> $(OUT_DIR)/freebase-entities/output.txt
+	@mkdir -p $(OUT_DIR)/dbpedia-entities
 	@$(CARGO) run --bin kg-entities --release -- \
 		--file $(OUT_DIR)/dbpedia-entities.tsv \
-		--output $(OUT_DIR)/dbpedia-entities-index.tsv \
+		--output $(OUT_DIR)/dbpedia-entities \
 		--check-for-popular-aliases \
 		--keep-most-common-non-unique \
 		--redirects $(OUT_DIR)/dbpedia-entity-redirects.tsv \
 		--knowledge-base dbpedia \
 		--ignore-types \
-		> $(OUT_DIR)/dbpedia-entities-output.txt
+		> $(OUT_DIR)/dbpedia-entities/output.txt
 
 .PHONY: download
 download: download_properties download_redirects download_entities

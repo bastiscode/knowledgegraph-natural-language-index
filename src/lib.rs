@@ -190,7 +190,12 @@ impl KnowledgeGraphProcessor {
                 format!("{label} ({})", splits[splits.len() - 2].replace('_', " "))
             }
         };
-        let aliases = splits[3].split_terminator(';').map(str::trim).collect();
+        let aliases = splits[3]
+            .trim_start_matches('"')
+            .trim_end_matches('"')
+            .split_terminator(';')
+            .map(str::trim)
+            .collect();
         let inverses = if splits.len() == 5 {
             splits[4]
                 .split_terminator(';')
@@ -250,7 +255,12 @@ impl KnowledgeGraphProcessor {
                 .collect()
         }));
         let aliases = if splits.len() == 6 {
-            splits[5].split_terminator(';').map(str::trim).collect()
+            splits[5]
+                .trim_start_matches('"')
+                .trim_end_matches('"')
+                .split_terminator(';')
+                .map(str::trim)
+                .collect()
         } else {
             vec![]
         };
