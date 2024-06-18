@@ -1,18 +1,16 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fs,
+    fs::{self, create_dir_all, File},
     io::{BufWriter, Write},
     path::PathBuf,
 };
 
-use anyhow::anyhow;
 use clap::Parser;
 use itertools::Itertools;
 use sparql_data_preparation::{
     line_iter, progress_bar, wikidata_qualifiers, KnowledgeGraph, KnowledgeGraphProcessor, Prop,
     PropInfo,
 };
-use text_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -110,7 +108,9 @@ fn main() -> anyhow::Result<()> {
     );
     println!("total unique:    {}", label_to_prop.len());
 
-    let mut output = BufWriter::new(fs::File::create(&args.output)?);
+    create_dir_all(&args.output)?;
+
+    let mut output = BufWriter::new(File::create(args.output.join("index.tsv"))?);
     let mut output_dict = HashMap::new();
     for (label, prop) in &label_to_prop {
         output_dict
@@ -123,31 +123,18 @@ fn main() -> anyhow::Result<()> {
     }
     for (prop, labels) in output_dict.iter_mut() {
         labels.sort();
-        labels.reverse();
-        let Some(label) = labels.pop() else {
-            unreachable!();
-        };
-        assert!(matches!(label, Prop::Label(_)));
-        labels.sort_by_key(|alias| {
-            distance(label.as_str(), alias.as_str(), true, false, false, false) as usize
-        });
 
         writeln!(
             output,
             "{}\t{}",
             kg.format_property(prop, None),
-            vec![&label]
-                .into_iter()
-                .chain(labels.iter())
-                .map(|p| p.as_str())
-                .join("\t")
+            labels.iter().map(|p| p.as_str()).join("\t")
         )?;
         if !args.include_wikidata_qualifiers {
             continue;
         }
-        vec![&label]
-            .into_iter()
-            .chain(labels.iter())
+        labels
+            .iter()
             .flat_map(|l| wikidata_qualifiers(l.as_str()))
             .fold(HashMap::<_, Vec<_>>::new(), |mut map, (lbl, pfx)| {
                 map.entry(pfx).or_default().push(lbl);
@@ -164,27 +151,7 @@ fn main() -> anyhow::Result<()> {
             })?;
     }
 
-    let output_stem = args
-        .output
-        .file_stem()
-        .ok_or_else(|| anyhow!("failed to extract file stem from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let output_ext = args
-        .output
-        .extension()
-        .ok_or_else(|| anyhow!("failed to extract extension from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let output_dir = args
-        .output
-        .parent()
-        .ok_or_else(|| anyhow!("failed to extract directory from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
-        "{output_dir}/{output_stem}.prefixes.{output_ext}"
-    ))?);
+    let mut prefix_output_file = BufWriter::new(File::create(args.output.join("prefixes.tsv"))?);
     for (short, long) in kg.property_prefixes() {
         writeln!(prefix_output_file, "{short}\t{long}")?;
     }

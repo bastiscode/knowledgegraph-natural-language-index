@@ -2,19 +2,17 @@ use rayon::prelude::*;
 use std::{
     cmp::Reverse,
     collections::{hash_map::Entry, HashMap, HashSet},
-    fs,
+    fs::{create_dir_all, File},
     io::{BufWriter, Write},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-use anyhow::anyhow;
 use clap::Parser;
 use itertools::Itertools;
 use sparql_data_preparation::{
     line_iter, progress_bar, Ent, KnowledgeGraph, KnowledgeGraphProcessor,
 };
-use text_utils::edit::distance;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -153,11 +151,9 @@ fn main() -> anyhow::Result<()> {
     aliases_to_ents.retain(|_, ents| ents.len() <= 1);
 
     let check_for_more_popular_alias = |label: &str, ent: &str| {
-        let Some(alias_ents) = aliases_to_ents.get(label) else {
-            return None;
-        };
+        let alias_ents = aliases_to_ents.get(label)?;
         let info = ent_infos.get(ent).unwrap();
-        let Some((alias_ent, alias_count)) = alias_ents
+        let (alias_ent, alias_count) = alias_ents
             .iter()
             .filter_map(|&alias_ent| {
                 if alias_ent == ent {
@@ -165,10 +161,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 Some((alias_ent, ent_infos.get(alias_ent).unwrap().count))
             })
-            .max_by_key(|&(_, count)| count)
-        else {
-            return None;
-        };
+            .max_by_key(|&(_, count)| count)?;
         if alias_count > info.count {
             Some(alias_ent.to_string())
         } else {
@@ -338,37 +331,17 @@ fn main() -> anyhow::Result<()> {
             .push((label, matches!(ent, Ent::Alias(_) | Ent::AliasInfo(_))));
     }
 
-    let output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
-        args.output.as_path(),
+    create_dir_all(&args.output)?;
+    let output = Arc::new(Mutex::new(BufWriter::new(File::create(
+        args.output.join("index.tsv"),
     )?)));
-    let output_stem = args
-        .output
-        .file_stem()
-        .ok_or_else(|| anyhow!("failed to extract file stem from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let output_ext = args
-        .output
-        .extension()
-        .ok_or_else(|| anyhow!("failed to extract extension from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let output_dir = args
-        .output
-        .parent()
-        .ok_or_else(|| anyhow!("failed to extract directory from {:#?}", args.output))?
-        .to_str()
-        .ok_or_else(|| anyhow!("failed to convert os str to str"))?;
-    let mut prefix_output_file = BufWriter::new(fs::File::create(format!(
-        "{output_dir}/{output_stem}.prefixes.{output_ext}"
-    ))?);
+    let mut prefix_output_file = BufWriter::new(File::create(args.output.join("prefixes.tsv"))?);
     for (short, long) in kg.entity_prefixes() {
         writeln!(prefix_output_file, "{short}\t{long}")?;
     }
 
-    let redirect_output_file = format!("{output_dir}/{output_stem}.redirects.{output_ext}");
-    let redirect_output = Arc::new(Mutex::new(BufWriter::new(fs::File::create(
-        redirect_output_file,
+    let redirect_output = Arc::new(Mutex::new(BufWriter::new(File::create(
+        args.output.join("redirects.tsv"),
     )?)));
 
     let pbar = progress_bar("creating outputs", output_dict.len() as u64, !args.progress);
@@ -390,11 +363,11 @@ fn main() -> anyhow::Result<()> {
                 None
             })
             .collect();
-        let mut aliases = labels
+        let aliases = labels
             .iter()
             .filter_map(|&(&(label, info), is_alias)| if info.is_none() && is_alias {Some(label)} else {None})
             .collect::<Vec<_>>();
-        let mut alias_infos = labels
+        let alias_infos = labels
             .iter()
             .filter_map(|&(&(label, info), is_alias)| if info.is_some() && is_alias {
                 Some(format!("{} ({})", label, info.unwrap()))
@@ -408,21 +381,6 @@ fn main() -> anyhow::Result<()> {
             "expected either an original label or a label + info, but got {org_label:#?} and {info_label:#?}"
         );
         let info = ent_infos.get(&ent).unwrap();
-        let label = if let Some(&label) = org_label.first() {
-            label.to_string()
-        } else if let Some(label) = info_label.first() {
-            label.clone()
-        } else if !aliases.is_empty() || info.info().is_empty() {
-            info.label.to_string()
-        } else {
-            format!("{} ({})", info.label, info.info())
-        };
-        aliases.sort_by_key(|&alias| {
-            distance(&label, alias, true, false, false, false) as usize
-        });
-        alias_infos.sort_by_key(|alias| {
-            distance(&label, alias, true, false, false, false) as usize
-        });
         if let Some(redirs) = info.redirects {
             writeln!(
                 redirect_output.lock().unwrap(),

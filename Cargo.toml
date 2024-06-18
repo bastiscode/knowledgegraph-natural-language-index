@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 regex = "1.8"
-itertools = "0.11"
+itertools = "0.13"
 anyhow = "1"
 clap = { version = "4.3", features = ["derive"] }
 indicatif = "0.17"
 rayon = "1.7"
-text-utils-rs = { path = "third_party/text-utils" }
