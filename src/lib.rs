@@ -285,9 +285,6 @@ impl KnowledgeGraphProcessor {
         short: bool,
         pfx: Option<&str>,
     ) -> anyhow::Result<String> {
-        if !short && pfx.is_none() {
-            return Ok(p.to_string());
-        }
         let Some(p) = self.prop_pattern.captures(p) else {
             bail!("failed to capture property in {}", p);
         };
@@ -298,7 +295,7 @@ impl KnowledgeGraphProcessor {
                     format!("{}:{p}", pfx.unwrap_or("wdt"))
                 } else {
                     format!(
-                        "{}/{p}",
+                        "{}{p}",
                         pfx.unwrap_or("http://www.wikidata.org/prop/direct/")
                     )
                 }
@@ -308,7 +305,7 @@ impl KnowledgeGraphProcessor {
                 if short {
                     format!("{}:{p}", pfx.unwrap_or("fb"))
                 } else {
-                    format!("{}/{}", pfx.unwrap_or("http://rdf.freebase.com/ns/"), p)
+                    format!("{}{}", pfx.unwrap_or("http://rdf.freebase.com/ns/"), p)
                 }
             }
             KnowledgeGraph::DBPedia => {
@@ -318,7 +315,11 @@ impl KnowledgeGraphProcessor {
                     let pfx = if p_type == "ontology" { "dbo" } else { "dbp" };
                     format!("{pfx}:{p}")
                 } else {
-                    format!("{}/{}/{}", pfx.unwrap_or("http://dbpedia.org"), p_type, p)
+                    format!(
+                        "{}{}",
+                        pfx.unwrap_or(&format!("http://dbpedia.org/{p_type}")),
+                        p
+                    )
                 }
             }
         })
