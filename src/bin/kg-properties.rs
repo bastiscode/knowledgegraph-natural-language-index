@@ -139,10 +139,15 @@ fn main() -> anyhow::Result<()> {
         labels
             .iter()
             .flat_map(|l| wikidata_qualifiers(l.as_str()))
-            .fold(HashMap::<_, Vec<_>>::new(), |mut map, (lbl, pfx)| {
-                map.entry(pfx).or_default().push(lbl);
-                map
-            })
+            .fold(
+                HashMap::<_, Vec<_>>::new(),
+                |mut map, (lbl, short, long)| {
+                    map.entry(if args.short_properties { short } else { long })
+                        .or_default()
+                        .push(lbl);
+                    map
+                },
+            )
             .into_iter()
             .try_for_each(|(pfx, lbls)| -> anyhow::Result<()> {
                 Ok(writeln!(
