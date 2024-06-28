@@ -61,7 +61,9 @@ fn main() -> anyhow::Result<()> {
     let lines: Vec<_> = lines.collect::<anyhow::Result<_>>()?;
     for line in &lines {
         pbar.inc(1);
-        let (prop, info) = kg.parse_property(line)?;
+        let Ok((prop, info)) = kg.parse_property(line) else {
+            continue;
+        };
 
         match label_to_prop.entry(info.label.clone()) {
             Entry::Occupied(mut e) => {

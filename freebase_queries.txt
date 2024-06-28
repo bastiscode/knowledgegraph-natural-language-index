@@ -3,28 +3,22 @@
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX fb: <http://rdf.freebase.com/ns/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
-SELECT 
+SELECT DISTINCT
   ?ent 
-  ?ent_name 
-  ?ent_description
+  ?ent_name
+  ?ent_description 
   ?ent_count
-  (GROUP_CONCAT(DISTINCT ?type; SEPARATOR = "; ") AS ?types)
-  (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
+  ?type
+  ?alias
 WHERE 
 {
-  { SELECT ?ent (COUNT(?ent) as ?ent_count) WHERE { ?ent ?p ?obj } GROUP BY ?ent }
   ?ent rdfs:label ?ent_name .
-  FILTER(LANG(?ent_name) = "en") .
-  FILTER(REGEX(STR(?ent), "^http://rdf.freebase.com/ns/m\..*$"))
+  FILTER(LANG(?ent_name) = "en")
   BIND("" AS ?ent_description)
-  OPTIONAL {
-    ?ent fb:common.topic.alias ?alias .
-    FILTER (LANG(?alias) = "en") .
-  }
+  BIND(0 AS ?ent_count)
   BIND("" AS ?type)
+  BIND("" AS ?alias)
 }
-GROUP BY ?ent ?ent_name ?ent_description ?ent_count
-ORDER BY DESC(?ent_count)
 
 # All properties in Freebase with name, count, aliases, and inverse properties
 

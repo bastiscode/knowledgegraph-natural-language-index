@@ -117,7 +117,9 @@ fn main() -> anyhow::Result<()> {
     );
     for line in &lines {
         pbar.inc(1);
-        let (ent, mut info) = kg.parse_entity(line, args.ignore_types)?;
+        let Ok((ent, mut info)) = kg.parse_entity(line, args.ignore_types) else {
+            continue;
+        };
 
         label_to_ents
             .entry(info.label)
