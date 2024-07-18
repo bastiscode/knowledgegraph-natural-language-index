@@ -52,12 +52,23 @@ SELECT
   ?p 
   ?p_label
   ?p_count
+  ?p_comment
+  ?p_domain
   (GROUP_CONCAT(DISTINCT ?alias; SEPARATOR = "; ") AS ?aliases)
   (GROUP_CONCAT(DISTINCT ?inv_p; SEPARATOR = "; ") AS ?inverse)
 WHERE {
   { SELECT ?p (COUNT(?p) as ?p_count) WHERE { ?s ?p ?o } GROUP BY ?p }
   ?p rdfs:label ?p_label .
   FILTER(LANG(?p_label) = "en") .
+  OPTIONAL {
+    ?p rdfs:comment ?p_comment .
+    FILTER(LANG(?p_comment) = "en") .
+  }
+  OPTIONAL {
+    ?p rdfs:domain ?domain_ .
+    ?domain_ rdfs:label ?p_domain .
+    FILTER(LANG(?p_domain) = "en") .
+  }
   OPTIONAL {
     ?p dbo:alias ?alias .
     FILTER (LANG(?alias) = "en") .
