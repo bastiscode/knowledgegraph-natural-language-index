@@ -1,4 +1,5 @@
 # All entities in Freebase with name, description, links, types, notable types, aliases, and keys
+# https://qlever.cs.uni-freiburg.de/freebase/mssAnA
 
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX fb: <http://rdf.freebase.com/ns/>
@@ -47,6 +48,7 @@ GROUP BY ?ent ?ent_name ?ent_description ?links
 ORDER BY DESC(?links)
 
 # All properties in Freebase with name, count and domain
+# https://qlever.cs.uni-freiburg.de/freebase/wKemSV
 
 PREFIX fb: <http://rdf.freebase.com/ns/>
 SELECT DISTINCT
